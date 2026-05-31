@@ -72,7 +72,9 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          script: mkdir -p /opt/dbd-bot/data
+          script: |
+            sudo mkdir -p /opt/dbd-bot/data
+            sudo chown -R $USER:$USER /opt/dbd-bot
 
       - name: Copy config files to server
         uses: appleboy/scp-action@v1.0.0
