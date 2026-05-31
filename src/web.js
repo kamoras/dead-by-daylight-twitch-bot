@@ -425,7 +425,9 @@ function createWebServer(
   prefix = '!dbd ',
   isConnected = () => true,
   domain = '',
-  getChannelStats = () => []
+  getChannelStats = () => [],
+  webhookSecret = '',
+  onStreamOffline = () => {}
 ) {
   const baseUrl = domain ? `https://${domain}` : '';
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -436,6 +438,37 @@ function createWebServer(
   app.use(express.urlencoded({ extended: false }));
 
   // ── Public routes ──────────────────────────────────────────────────────────
+
+  // ── Twitch EventSub webhook ────────────────────────────────────────────────
+  // Uses express.raw() so we can verify the HMAC signature over the raw body.
+
+  if (webhookSecret) {
+    const { verifySignature } = require('./eventsub');
+
+    app.post('/webhook/twitch', express.raw({ type: 'application/json' }), (req, res) => {
+      const messageId = req.headers['twitch-eventsub-message-id'] ?? '';
+      const timestamp = req.headers['twitch-eventsub-message-timestamp'] ?? '';
+      const signature = req.headers['twitch-eventsub-message-signature'] ?? '';
+      const messageType = req.headers['twitch-eventsub-message-type'] ?? '';
+
+      if (!verifySignature(webhookSecret, messageId, timestamp, req.body.toString(), signature)) {
+        return res.status(403).end();
+      }
+
+      const body = JSON.parse(req.body.toString());
+
+      if (messageType === 'webhook_callback_verification') {
+        return res.status(200).send(body.challenge);
+      }
+
+      if (messageType === 'notification' && body.subscription?.type === 'stream.offline') {
+        const channel = body.event?.broadcaster_user_login;
+        if (channel) onStreamOffline(channel);
+      }
+
+      res.status(204).end();
+    });
+  }
 
   app.get('/og-image.svg', (_req, res) => {
     res.set('Content-Type', 'image/svg+xml');

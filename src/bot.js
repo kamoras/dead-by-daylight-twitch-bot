@@ -85,7 +85,16 @@ function createBot(config, initialChannels = []) {
     }));
   }
 
-  return { client, joinChannel, isConnected, getChannelStats };
+  function onStreamOffline(channelName) {
+    const key = channelName.replace(/^#/, '').toLowerCase();
+    const queue = queues.get(key);
+    if (!queue || !queue.isOpen) return;
+    queue.close();
+    console.log(`[bot] Stream offline for #${key} — queue closed and cleared`);
+    client.say(`#${key}`, 'Stream is offline — queue has been closed and cleared. See you next time! 👋').catch(() => {});
+  }
+
+  return { client, joinChannel, isConnected, getChannelStats, onStreamOffline };
 }
 
 module.exports = { createBot };

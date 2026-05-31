@@ -104,6 +104,9 @@ jobs:
             DOMAIN=${{ secrets.DOMAIN }}
             ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
             ADMIN_PATH=${{ secrets.ADMIN_PATH }}
+            TWITCH_CLIENT_ID=${{ secrets.TWITCH_CLIENT_ID }}
+            TWITCH_CLIENT_SECRET=${{ secrets.TWITCH_CLIENT_SECRET }}
+            TWITCH_WEBHOOK_SECRET=${{ secrets.TWITCH_WEBHOOK_SECRET }}
             ENVEOF
             cd /opt/dbd-bot
             sudo docker compose pull
