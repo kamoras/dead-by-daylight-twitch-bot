@@ -67,7 +67,7 @@ All configuration is done via environment variables. In production these are set
 | `QUEUE_ROLES_MODE` | | `both` | `off` · `both` · `survivor` · `killer` |
 | `QUEUE_MAX_SIZE` | | `20` | Maximum queue size |
 | `PORT` | | `8080` | Internal port (Caddy proxies to this — do not expose it publicly) |
-| `DB_PATH` | | `./data/bot.db` | Path to the SQLite database file (inside the container) |
+| `DB_PATH` | | `./data/bot.db` | Path to the SQLite database file inside the container (maps to `/opt/dbd-bot/data/bot.db` on the host) |
 
 ### Getting a Twitch OAuth token
 
@@ -205,14 +205,10 @@ Monitor the deploy under **Actions** in your repository. To tail logs on the ser
 sudo docker compose -f /opt/dbd-bot/docker-compose.yml logs -f
 ```
 
-The SQLite database lives in a named Docker volume (`bot_data`) managed by Docker — not a directory on the host filesystem. To inspect or back it up:
+The SQLite database is stored at `/opt/dbd-bot/data/bot.db` on the host — it persists across container recreation and is accessible directly without going through Docker. To back it up:
 
 ```bash
-# Dump the full database
-sudo docker exec dbd-bot sqlite3 /app/data/bot.db ".dump"
-
-# Back up to a file on the host
-sudo docker exec dbd-bot sqlite3 /app/data/bot.db ".dump" > ~/dbd-bot-backup.sql
+cp /opt/dbd-bot/data/bot.db ~/dbd-bot-backup.sql
 ```
 
 ### 5 — Onboard a channel
