@@ -79,7 +79,7 @@ describe('Queue', () => {
     q.join('bob');
     const result = q.pick();
     assert.equal(result.success, true);
-    assert.equal(result.entry.username, 'alice');
+    assert.equal(result.entries[0].username, 'alice');
     assert.equal(q.size, 1);
     assert.equal(q.entries[0].username, 'bob');
   });
@@ -88,6 +88,28 @@ describe('Queue', () => {
     const q = new Queue();
     const result = q.pick();
     assert.equal(result.success, false);
+  });
+
+  it('pick(n) removes up to n entries in order', () => {
+    const q = new Queue();
+    q.join('alice');
+    q.join('bob');
+    q.join('charlie');
+    const result = q.pick(2);
+    assert.equal(result.success, true);
+    assert.equal(result.entries.length, 2);
+    assert.equal(result.entries[0].username, 'alice');
+    assert.equal(result.entries[1].username, 'bob');
+    assert.equal(q.size, 1);
+  });
+
+  it('pick(n) caps at queue size', () => {
+    const q = new Queue();
+    q.join('alice');
+    const result = q.pick(10);
+    assert.equal(result.success, true);
+    assert.equal(result.entries.length, 1);
+    assert.equal(q.size, 0);
   });
 
   it('next previews without removing', () => {

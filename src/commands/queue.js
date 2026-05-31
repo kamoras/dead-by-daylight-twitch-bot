@@ -84,7 +84,8 @@ function handle(client, channel, tags, queue, cmd, args, config) {
 
     case 'pick': {
       if (!mod) break;
-      const resultPick = queue.pick();
+      const count = args[0] ? Math.max(1, parseInt(args[0], 10) || 1) : 1;
+      const resultPick = queue.pick(count);
       client.say(channel, resultPick.message);
       break;
     }

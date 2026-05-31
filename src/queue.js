@@ -85,17 +85,20 @@ class Queue {
     };
   }
 
-  pick() {
+  pick(count = 1) {
     if (this.entries.length === 0) {
       return { success: false, message: 'The queue is empty!' };
     }
-    const entry = this.entries.shift();
-    const roleText = entry.role ? ` (${entry.role})` : '';
+    const n = Math.min(Math.max(1, count), this.entries.length);
+    const picked = this.entries.splice(0, n);
     const remaining = this.entries.length;
+    const names = picked
+      .map(e => `@${e.username}${e.role ? ` (${e.role})` : ''}`)
+      .join(', ');
     return {
       success: true,
-      entry,
-      message: `🎮 @${entry.username}${roleText} — you're up! Get ready to join the lobby! (${remaining} remaining in queue)`,
+      entries: picked,
+      message: `🎮 ${names} — you're up! Get ready to join the lobby! (${remaining} remaining in queue)`,
     };
   }
 
