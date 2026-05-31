@@ -1,0 +1,17 @@
+name: Generate Invite Code
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    name: Generate invite code on server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run invite script via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: docker exec dbd-bot node scripts/invite.js
