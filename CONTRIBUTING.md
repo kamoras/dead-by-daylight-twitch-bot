@@ -38,7 +38,8 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 3. **Configure your environment:**
    ```bash
    cp .env.example .env
-   # Fill in TWITCH_BOT_USERNAME and TWITCH_BOT_TOKEN
+   # Required: TWITCH_BOT_USERNAME, TWITCH_BOT_TOKEN
+   # For admin dashboard: ADMIN_PASSWORD, ADMIN_PATH
    ```
 
 4. **Create a feature branch:**
@@ -56,6 +57,8 @@ npm run dev
 ```
 
 The landing page is available at `http://localhost:8080`.
+
+The admin dashboard is at `http://localhost:8080/admin/YOUR_ADMIN_PATH` (use whatever you set for `ADMIN_PATH` in `.env`).
 
 Generate a local invite code to onboard a test channel:
 ```bash

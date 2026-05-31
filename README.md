@@ -1,4 +1,4 @@
-# Dead by Daylight Twitch Bot 🔪
+# Dead by Daylight Twitch Bot
 
 [![CI](https://github.com/kamoras/dead-by-daylight-twitch-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/kamoras/dead-by-daylight-twitch-bot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -10,27 +10,29 @@ One bot instance serves multiple streamers. Streamers self-onboard through an in
 ## Features
 
 - **Queue management** — viewers sign up, check their position, and leave at will
-- **Role modes** — configure the queue as survivor-only, killer-only, mixed, or no roles
-- **Moderator controls** — open/close the queue, call up the next player, remove users
+- **Role modes** — survivor is the default role; killer is opt-in (`!dbd join killer`)
+- **Moderator controls** — open/close the queue, pick the next player(s), remove users
+- **Auto stream-end** — queue closes and clears automatically when the stream goes offline (requires Twitch EventSub config)
 - **Multi-channel** — one bot instance serves multiple streamers
-- **Invite-only onboarding** — streamers connect their channel through a landing page using single-use invite codes you generate
-- **DbD extras** — random killer, survivor, perk, map, and messages from the Entity
-- **Free hosting** — runs on Oracle Cloud Always Free tier (no expiry, credit card required to sign up)
+- **Invite-only onboarding** — streamers self-connect via a landing page using single-use invite codes
+- **Admin dashboard** — generate/revoke invite codes, monitor connected channels, queue state, and webhook activity
+- **DbD extras** — random killer, survivor, perk, map, and Entity messages
+- **Free hosting** — runs on Oracle Cloud Always Free tier (no expiry; credit card required to sign up)
 - **Auto-deploy** — GitHub Actions builds, pushes, and deploys on every merge to `main`
-- **HTTPS** — Caddy reverse proxy handles TLS automatically via Let's Encrypt
-- **Dependabot** — automatic weekly dependency update PRs
+- **HTTPS** — Caddy reverse proxy with automatic Let's Encrypt TLS
 
 ---
 
 ## Commands
 
-All commands use the `!dbd` prefix by default (e.g. `!dbd join`). This is configurable via `BOT_PREFIX`.
+All commands use the `!dbd` prefix by default. Configurable via `BOT_PREFIX`.
 
 ### Everyone
 
 | Command | Description |
 |---------|-------------|
-| `!dbd join` | Join the queue (when `QUEUE_ROLES_MODE=both`, use `!dbd join survivor` or `!dbd join killer`) |
+| `!dbd join` | Join the queue as survivor (default when `QUEUE_ROLES_MODE=both`) |
+| `!dbd join killer` | Join the queue as killer |
 | `!dbd leave` | Leave the queue |
 | `!dbd queue` | Show the first 5 people in the queue |
 | `!dbd position` | Check your spot in the queue |
@@ -39,18 +41,19 @@ All commands use the `!dbd` prefix by default (e.g. `!dbd join`). This is config
 | `!dbd perk [killer\|survivor]` | Get a random perk (optionally filtered by side) |
 | `!dbd map` | Get a random map |
 | `!dbd entity` | Hear from the Entity |
-| `!dbd help` | Print all available commands |
+| `!dbd help` | Quick help — joining, leaving, and queue status |
+| `!dbd help extended` | Full command reference including all mod commands and DbD extras |
 
 ### Moderators only
 
 | Command | Description |
 |---------|-------------|
 | `!dbd open` | Open the queue |
-| `!dbd close` | Close the queue |
-| `!dbd pick` | Call up the next person and remove them from the queue |
+| `!dbd close` | Close the queue and clear it (resets for the next session) |
+| `!dbd pick [n]` | Call up the next person, or the next `n` people |
 | `!dbd next` | Preview who's next without removing them |
 | `!dbd remove <username>` | Remove a specific user from the queue |
-| `!dbd clear` | Clear the entire queue |
+| `!dbd clear` | Clear the queue without closing it |
 
 ---
 
@@ -62,14 +65,17 @@ All configuration is done via environment variables. In production these are set
 |----------|:--------:|---------|-------------|
 | `TWITCH_BOT_USERNAME` | ✅ | — | Twitch username of the bot account |
 | `TWITCH_BOT_TOKEN` | ✅ | — | OAuth token for the bot, prefixed with `oauth:` |
-| `DOMAIN` | ✅ | — | Your domain name — Caddy uses this to obtain a TLS certificate |
+| `DOMAIN` | ✅ | — | Your domain — Caddy uses this for TLS and the webhook URL |
 | `ADMIN_PASSWORD` | ✅ | — | Password for the admin dashboard |
-| `ADMIN_PATH` | ✅ | — | Secret URL slug — admin lives at `/admin/YOUR_ADMIN_PATH` |
-| `BOT_PREFIX` | | `!dbd ` | Command prefix (include trailing space for multi-word prefixes) |
+| `ADMIN_PATH` | ✅ | — | Secret URL slug — admin lives at `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` |
+| `BOT_PREFIX` | | `!dbd ` | Command prefix (trailing space required for multi-word prefixes) |
 | `QUEUE_ROLES_MODE` | | `both` | `off` · `both` · `survivor` · `killer` |
 | `QUEUE_MAX_SIZE` | | `20` | Maximum queue size |
-| `PORT` | | `8080` | Internal port (Caddy proxies to this — do not expose it publicly) |
-| `DB_PATH` | | `./data/bot.db` | Path to the SQLite database file inside the container (maps to `/opt/dbd-bot/data/bot.db` on the host) |
+| `PORT` | | `8080` | Internal port (Caddy proxies to this — do not expose publicly) |
+| `DB_PATH` | | `./data/bot.db` | SQLite path inside the container (maps to `/opt/dbd-bot/data/bot.db` on host) |
+| `TWITCH_CLIENT_ID` | | — | Twitch app Client ID — required for stream-end auto-detection |
+| `TWITCH_CLIENT_SECRET` | | — | Twitch app Client Secret — required for stream-end auto-detection |
+| `TWITCH_WEBHOOK_SECRET` | | — | Random string for EventSub signature verification (`openssl rand -hex 20`) |
 
 ### Getting a Twitch OAuth token
 
@@ -80,7 +86,7 @@ All configuration is done via environment variables. In production these are set
    ```
    https://id.twitch.tv/oauth2/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost&response_type=token&scope=chat:read+chat:edit
    ```
-5. Authorize the app. The browser will redirect to `http://localhost` — copy the `access_token` value from the URL bar.
+5. Authorize the app. The browser redirects to `http://localhost` — copy the `access_token` from the URL bar.
 6. Prefix it with `oauth:` when setting `TWITCH_BOT_TOKEN`.
 
 ---
@@ -95,13 +101,16 @@ npm install
 
 # 2. Configure
 cp .env.example .env
-# Fill in TWITCH_BOT_USERNAME and TWITCH_BOT_TOKEN
+# Fill in at minimum: TWITCH_BOT_USERNAME, TWITCH_BOT_TOKEN,
+# ADMIN_PASSWORD, ADMIN_PATH
 
 # 3. Run with auto-reload
 npm run dev
 ```
 
-The landing page is at `http://localhost:8080`. To onboard a test channel, generate a local invite code:
+The landing page is at `http://localhost:8080`. The admin dashboard is at `http://localhost:8080/admin/YOUR_ADMIN_PATH`.
+
+To onboard a test channel, generate a local invite code:
 
 ```bash
 npm run invite
@@ -188,10 +197,13 @@ Go to **Settings → Secrets and variables → Actions → Repository secrets** 
 | `TWITCH_BOT_TOKEN` | ✅ | Bot's OAuth token (`oauth:...`) |
 | `DOMAIN` | ✅ | Your domain (e.g. `bot.yourdomain.com`) |
 | `ADMIN_PASSWORD` | ✅ | Password for the admin dashboard |
-| `ADMIN_PATH` | ✅ | Secret URL segment — admin lives at `https://YOUR_DOMAIN/admin/ADMIN_PATH` |
+| `ADMIN_PATH` | ✅ | Secret URL segment for the admin dashboard |
 | `QUEUE_ROLES_MODE` | | Defaults to `both` |
 | `QUEUE_MAX_SIZE` | | Defaults to `20` |
-| `BOT_PREFIX` | | Defaults to `!dbd ` |
+| `BOT_PREFIX` | | Defaults to `!dbd ` (include the trailing space) |
+| `TWITCH_CLIENT_ID` | | Enables stream-end auto-detection via EventSub |
+| `TWITCH_CLIENT_SECRET` | | Enables stream-end auto-detection via EventSub |
+| `TWITCH_WEBHOOK_SECRET` | | Random string — generate with `openssl rand -hex 20` |
 
 ### 4 — Deploy
 
@@ -209,19 +221,42 @@ Monitor the deploy under **Actions** in your repository. To tail logs on the ser
 sudo docker compose -f /opt/dbd-bot/docker-compose.yml logs -f
 ```
 
-The SQLite database is stored at `/opt/dbd-bot/data/bot.db` on the host — it persists across container recreation and is accessible directly without going through Docker. To back it up:
+The SQLite database is at `/opt/dbd-bot/data/bot.db` on the host — it persists across container recreation. To back it up:
 
 ```bash
-cp /opt/dbd-bot/data/bot.db ~/dbd-bot-backup.sql
+cp /opt/dbd-bot/data/bot.db ~/dbd-bot-backup.db
 ```
 
 ### 5 — Onboard a channel
 
-1. Visit `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` and enter your `ADMIN_PASSWORD`.
-2. Click **Generate Code** — the code is displayed only to you, never in any logs.
+1. Visit `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` and sign in.
+2. Click **Generate Code** — the code is shown only to you, never in any log.
 3. Share the code with the streamer.
 4. They visit `https://YOUR_DOMAIN`, enter the code and their channel name.
-5. They type `/mod YOUR_BOT_USERNAME` in their Twitch chat — done.
+5. Recommended: they type `/mod YOUR_BOT_USERNAME` in their chat to give the bot moderator status (prevents Twitch rate-limiting the bot's messages).
+
+---
+
+## Admin Dashboard
+
+The admin dashboard at `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` provides:
+
+- **Bot status** — connection state, uptime, active channel count, current prefix
+- **Invite codes** — generate single-use codes; revoke any pending code before it's used
+- **Connected channels** — all onboarded channels with queue size and open/closed state
+- **Webhook activity** — EventSub delivery stats (received, verified, rejected) and a log of recent stream-end events
+
+Sessions last 8 hours. The admin URL itself is secret — any other `/admin/*` path returns 404.
+
+---
+
+## Stream-End Auto-Detection
+
+When `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_WEBHOOK_SECRET` are all set, the bot subscribes to the Twitch EventSub `stream.offline` event for every connected channel. When a stream ends, the queue is automatically closed and cleared, and the bot posts a message in chat.
+
+The webhook endpoint is `https://YOUR_DOMAIN/webhook/twitch`. Twitch verifies ownership of this endpoint during subscription setup, so the HTTPS endpoint provided by Caddy is required.
+
+The bot runs normally without these secrets — stream-end detection is opt-in.
 
 ---
 
@@ -231,7 +266,7 @@ cp /opt/dbd-bot/data/bot.db ~/dbd-bot-backup.sql
 |----------|---------|--------------|
 | `ci.yml` | Push to `main`, any PR | Lints and runs tests |
 | `deploy.yml` | After CI passes on `main`, or manual | Builds image → pushes to ghcr.io → writes config → deploys via SSH |
-| `invite.yml` | Manual only | Emergency headless fallback — generates a code on the server but masks it from logs. Use `https://YOUR_DOMAIN/admin` instead. |
+| `invite.yml` | Manual only | Emergency headless fallback — generates a code on the server. Use the admin dashboard instead; the Actions log never shows the code. |
 
 ---
 
