@@ -14,7 +14,7 @@ class Queue {
 
   join(username, roleArg) {
     if (!this.isOpen) {
-      return { success: false, message: `@${username}, the queue is currently closed. 🔒` };
+      return { success: false, message: `@${username}, the queue is currently closed.` };
     }
 
     if (this._findIndex(username) !== -1) {
@@ -50,7 +50,7 @@ class Queue {
     const roleText = role ? ` as ${role}` : '';
     return {
       success: true,
-      message: `@${username} joined the queue${roleText}! You're #${pos} in line. 🎮`,
+      message: `@${username} joined the queue${roleText}! You're #${pos} in line.`,
     };
   }
 
@@ -60,7 +60,7 @@ class Queue {
       return { success: false, message: `@${username}, you're not in the queue.` };
     }
     this.entries.splice(idx, 1);
-    return { success: true, message: `@${username} left the queue. See you next time! 👋` };
+    return { success: true, message: `@${username} left the queue.` };
   }
 
   remove(username) {
@@ -98,7 +98,7 @@ class Queue {
     return {
       success: true,
       entries: picked,
-      message: `🎮 ${names} — you're up! Get ready to join the lobby! (${remaining} remaining in queue)`,
+      message: `${names} — you're up! Get ready to join the lobby. (${remaining} remaining in queue)`,
     };
   }
 
@@ -113,7 +113,7 @@ class Queue {
       return { success: false, message: 'The queue is already open.' };
     }
     this.isOpen = true;
-    return { success: true, message: 'Queue is now open! 🟢' };
+    return { success: true, message: 'Queue is now open!' };
   }
 
   close() {
@@ -122,7 +122,7 @@ class Queue {
     }
     this.isOpen = false;
     this.entries = []; // clear the queue when the stream session ends
-    return { success: true, message: 'Queue is now closed and cleared for next session. 🔴' };
+    return { success: true, message: 'Queue is now closed and cleared for next session.' };
   }
 
   position(username) {

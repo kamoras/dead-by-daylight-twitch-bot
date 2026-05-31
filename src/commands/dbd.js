@@ -26,11 +26,11 @@ function handle(client, channel, tags, cmd, args) {
 
   switch (cmd) {
     case 'killer':
-      client.say(channel, `🔪 @${username}, your random killer: ${pick(killers)}`);
+      client.say(channel, `@${username}, your random killer: ${pick(killers)}`);
       break;
 
     case 'survivor':
-      client.say(channel, `🏃 @${username}, your random survivor: ${pick(survivors)}`);
+      client.say(channel, `@${username}, your random survivor: ${pick(survivors)}`);
       break;
 
     case 'perk': {
@@ -41,12 +41,12 @@ function handle(client, channel, tags, cmd, args) {
           : side === 'survivor'
             ? perks.survivor
             : [...perks.survivor, ...perks.killer];
-      client.say(channel, `✨ @${username}, your random perk: ${pick(perkPool)}`);
+      client.say(channel, `@${username}, your random perk: ${pick(perkPool)}`);
       break;
     }
 
     case 'map':
-      client.say(channel, `🗺️ @${username}, your random map: ${pick(maps)}`);
+      client.say(channel, `@${username}, your random map: ${pick(maps)}`);
       break;
 
     case 'entity':

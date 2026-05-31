@@ -54,7 +54,7 @@ function handle(client, channel, tags, queue, cmd, args, config) {
         client.say(channel, `The queue is empty! ${hint}`);
         break;
       }
-      const status = queue.isOpen ? '🟢 Open' : '🔴 Closed';
+      const status = queue.isOpen ? 'Open' : 'Closed';
       const preview = queue.list(5);
       const more = queue.size > 5 ? ` · +${queue.size - 5} more` : '';
       client.say(channel, `Queue [${status}] ${queue.size} total: ${formatEntries(preview)}${more}`);

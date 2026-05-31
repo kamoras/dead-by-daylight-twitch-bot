@@ -91,7 +91,7 @@ function createBot(config, initialChannels = []) {
     if (!queue || !queue.isOpen) return;
     queue.close();
     console.log(`[bot] Stream offline for #${key} — queue closed and cleared`);
-    client.say(`#${key}`, 'Stream is offline — queue has been closed and cleared. See you next time! 👋').catch(() => {});
+    client.say(`#${key}`, 'Stream is offline — queue has been closed and cleared.').catch(() => {});
   }
 
   return { client, joinChannel, isConnected, getChannelStats, onStreamOffline };
