@@ -14,4 +14,4 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          script: docker exec dbd-bot node scripts/invite.js
+          script: sudo docker exec dbd-bot node scripts/invite.js

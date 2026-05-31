@@ -97,11 +97,11 @@ jobs:
             TWITCH_BOT_TOKEN=${{ secrets.TWITCH_BOT_TOKEN }}
             QUEUE_ROLES_MODE=${{ secrets.QUEUE_ROLES_MODE || 'both' }}
             QUEUE_MAX_SIZE=${{ secrets.QUEUE_MAX_SIZE || '20' }}
-            BOT_PREFIX=${{ secrets.BOT_PREFIX || '!' }}
+            BOT_PREFIX=${{ secrets.BOT_PREFIX || '!dbd ' }}
             PORT=8080
             DOMAIN=${{ secrets.DOMAIN }}
             ENVEOF
             cd /opt/dbd-bot
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
+            sudo docker compose pull
+            sudo docker compose up -d --remove-orphans
+            sudo docker image prune -f

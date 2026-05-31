@@ -8,7 +8,7 @@ const { createWebServer } = require('./web');
 const config = {
   botUsername: process.env.TWITCH_BOT_USERNAME,
   botToken: process.env.TWITCH_BOT_TOKEN,
-  prefix: process.env.BOT_PREFIX || '!',
+  prefix: process.env.BOT_PREFIX || '!dbd ',
   rolesMode: process.env.QUEUE_ROLES_MODE || 'off',
   queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '20', 10),
   port: Number(process.env.PORT) || 8080,
@@ -39,7 +39,7 @@ console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
 const { client, joinChannel } = createBot(config, storedChannels);
 
-const app = createWebServer(joinChannel, config.botUsername);
+const app = createWebServer(joinChannel, config.botUsername, config.prefix);
 app.listen(config.port, () => {
   console.log(`[web] Listening on port ${config.port}`);
 });

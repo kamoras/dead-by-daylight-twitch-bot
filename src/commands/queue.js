@@ -20,6 +20,7 @@ function formatEntries(entries) {
 function handle(client, channel, tags, queue, cmd, args, config) {
   const username = tags['display-name'] || tags.username;
   const mod = isMod(tags, channel);
+  const p = config.prefix;
 
   switch (cmd) {
     case 'join': {
@@ -39,8 +40,8 @@ function handle(client, channel, tags, queue, cmd, args, config) {
       if (queue.size === 0) {
         const hint =
           config.rolesMode === 'both'
-            ? 'Use !join survivor or !join killer to sign up.'
-            : 'Use !join to sign up.';
+            ? `Use ${p}join survivor or ${p}join killer to sign up.`
+            : `Use ${p}join to sign up.`;
         client.say(channel, `The queue is empty! ${hint}`);
         break;
       }
@@ -59,7 +60,9 @@ function handle(client, channel, tags, queue, cmd, args, config) {
       const pos = queue.position(username);
       if (pos === 0) {
         const hint =
-          config.rolesMode === 'both' ? '!join survivor / !join killer' : '!join';
+          config.rolesMode === 'both'
+            ? `${p}join survivor / ${p}join killer`
+            : `${p}join`;
         client.say(channel, `@${username}, you're not in the queue. Use ${hint} to sign up!`);
       } else {
         client.say(
@@ -88,7 +91,7 @@ function handle(client, channel, tags, queue, cmd, args, config) {
       if (!mod) break;
       const target = args[0]?.replace(/^@/, '');
       if (!target) {
-        client.say(channel, `@${username}, usage: !remove <username>`);
+        client.say(channel, `@${username}, usage: ${p}remove <username>`);
         break;
       }
       const resultRemove = queue.remove(target);
@@ -119,11 +122,11 @@ function handle(client, channel, tags, queue, cmd, args, config) {
 
     case 'help': {
       const joinHint =
-        config.rolesMode === 'both' ? '!join survivor/killer' : '!join';
+        config.rolesMode === 'both' ? `${p}join survivor/killer` : `${p}join`;
       client.say(
         channel,
-        `DbD Queue — Everyone: ${joinHint} | !leave | !queue | !position | !killer | !survivor | !perk | !map | !entity` +
-          ` — Mods: !open | !close | !pick | !next | !remove <user> | !clear`
+        `DbD Queue — Everyone: ${joinHint} | ${p}leave | ${p}queue | ${p}position | ${p}killer | ${p}survivor | ${p}perk | ${p}map | ${p}entity` +
+          ` — Mods: ${p}open | ${p}close | ${p}pick | ${p}next | ${p}remove <user> | ${p}clear`
       );
       break;
     }

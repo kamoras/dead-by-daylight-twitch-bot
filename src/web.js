@@ -58,7 +58,7 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName })
 </html>`;
 }
 
-function renderLanding(botName, errorMsg) {
+function renderLanding(botName, errorMsg, prefix) {
   return renderPage({
     title: 'Enter the Fog — DbD Queue Bot',
     heading: 'Enter the Fog',
@@ -78,13 +78,13 @@ function renderLanding(botName, errorMsg) {
         <ol>
           <li>Go to your Twitch channel</li>
           <li>Type <code>/mod ${bot}</code> in chat to make the bot a moderator</li>
-          <li>Type <code>!help</code> to see all commands</li>
+          <li>Type <code>${prefix}help</code> to see all commands</li>
         </ol>
       </div>`,
   });
 }
 
-function renderSuccess(botName, channelName) {
+function renderSuccess(botName, channelName, prefix) {
   return renderPage({
     title: "You're in the Fog!",
     heading: "You're in the Fog!",
@@ -97,7 +97,7 @@ function renderSuccess(botName, channelName) {
         <ol>
           <li>Go to your Twitch channel</li>
           <li>Type <code>/mod ${bot}</code> in chat</li>
-          <li>Type <code>!help</code> to see all available commands</li>
+          <li>Type <code>${prefix}help</code> to see all available commands</li>
         </ol>
       </div>`,
   });
@@ -107,13 +107,13 @@ function renderError(message) {
   return `<html><body style="font-family:sans-serif;background:#080810;color:#ff6666;display:flex;align-items:center;justify-content:center;height:100vh"><p>${message}</p></body></html>`;
 }
 
-function createWebServer(joinChannel, botName) {
+function createWebServer(joinChannel, botName, prefix = '!dbd ') {
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.urlencoded({ extended: false }));
 
   app.get('/', (_req, res) => {
-    res.send(renderLanding(botName));
+    res.send(renderLanding(botName, null, prefix));
   });
 
   app.post('/onboard', rateLimit, (req, res) => {
@@ -121,20 +121,20 @@ function createWebServer(joinChannel, botName) {
     const rawChannel = (req.body.channel_name || '').trim().toLowerCase().replace(/^#/, '');
 
     if (!rawCode || !rawChannel) {
-      return res.status(400).send(renderLanding(botName, 'Both fields are required.'));
+      return res.status(400).send(renderLanding(botName, 'Both fields are required.', prefix));
     }
 
     if (!/^[a-zA-Z0-9_]{3,25}$/.test(rawChannel)) {
-      return res.status(400).send(renderLanding(botName, 'Invalid channel name. Use only letters, numbers, and underscores (3–25 characters).'));
+      return res.status(400).send(renderLanding(botName, 'Invalid channel name. Use only letters, numbers, and underscores (3–25 characters).', prefix));
     }
 
     if (db.channelExists(rawChannel)) {
-      return res.status(400).send(renderLanding(botName, 'This channel is already connected.'));
+      return res.status(400).send(renderLanding(botName, 'This channel is already connected.', prefix));
     }
 
     const valid = db.validateAndUseCode(rawCode, rawChannel);
     if (!valid) {
-      return res.status(400).send(renderLanding(botName, 'Invalid or already-used invite code.'));
+      return res.status(400).send(renderLanding(botName, 'Invalid or already-used invite code.', prefix));
     }
 
     db.addChannel(rawChannel, rawChannel);
@@ -142,7 +142,7 @@ function createWebServer(joinChannel, botName) {
       console.error(`[web] Failed to join #${rawChannel}:`, err.message);
     });
 
-    return res.send(renderSuccess(botName, rawChannel));
+    return res.send(renderSuccess(botName, rawChannel, prefix));
   });
 
   app.get('/health', (_req, res) => {
