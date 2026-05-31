@@ -74,7 +74,7 @@ jobs:
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script: |
             sudo systemctl enable docker
-            sudo mkdir -p /opt/dbd-bot/data
+            sudo mkdir -p /opt/dbd-bot
             sudo chown -R $USER:$USER /opt/dbd-bot
 
       - name: Copy config files to server

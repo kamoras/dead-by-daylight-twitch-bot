@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./data:/app/data
+      - bot_data:/app/data
 
   caddy:
     image: caddy:2-alpine
@@ -22,5 +22,6 @@ services:
       - caddy_config:/config
 
 volumes:
+  bot_data:
   caddy_data:
   caddy_config:
