@@ -5,6 +5,43 @@ const db = require('./db');
 
 const START_TIME = Date.now();
 
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#0a0a10"/>
+  <g stroke="#cc2222" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="2.2">
+    <circle cx="15" cy="6.5" r="3.2"/>
+    <line x1="15" y1="9.7" x2="15" y2="21.5"/>
+    <path d="M15 21.5 Q15 27.5 20.5 27.5 Q26 27.5 26 22.5"/>
+    <line x1="26" y1="22.5" x2="21.5" y2="21"/>
+  </g>
+</svg>`;
+
+const FAVICON_URI = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}`;
+
+const OG_IMAGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#1a0820"/>
+      <stop offset="100%" stop-color="#050508"/>
+    </radialGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="0" y="618" width="1200" height="12" fill="#8b0000" opacity="0.8"/>
+  <g transform="translate(90,130)" stroke="#cc2222" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)" opacity="0.85">
+    <circle cx="85" cy="52" r="38" stroke-width="13"/>
+    <line x1="85" y1="90" x2="85" y2="275" stroke-width="13"/>
+    <path d="M85 275 Q85 345 155 345 Q225 345 225 275" stroke-width="13"/>
+    <line x1="225" y1="275" x2="178" y2="258" stroke-width="13"/>
+  </g>
+  <line x1="365" y1="175" x2="365" y2="455" stroke="#cc2222" stroke-width="1.5" stroke-opacity="0.25"/>
+  <text x="410" y="265" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="82" font-weight="700" fill="#ffffff" letter-spacing="0">Dead by Daylight</text>
+  <text x="414" y="355" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="62" font-weight="700" fill="#cc2222" letter-spacing="10">QUEUE BOT</text>
+  <text x="416" y="428" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="28" fill="#555577" letter-spacing="4">Invite-only  •  Multi-channel  •  Free</text>
+</svg>`;
+
 // Basic in-memory rate limiter for the onboarding endpoint.
 const attempts = new Map();
 function rateLimit(req, res, next) {
@@ -23,13 +60,29 @@ function rateLimit(req, res, next) {
   next();
 }
 
-function renderPage({ title, heading, headingColor = '#cc2222', body, botName }) {
+function metaTags(baseUrl) {
+  if (!baseUrl) return '';
+  return `
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${baseUrl}">
+  <meta property="og:title" content="DbD Queue Bot — Enter the Fog">
+  <meta property="og:description" content="Connect your Twitch channel to the Dead by Daylight Queue Bot. Invite-only, multi-channel, free.">
+  <meta property="og:image" content="${baseUrl}/og-image.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DbD Queue Bot — Enter the Fog">
+  <meta name="twitter:description" content="Connect your Twitch channel to the Dead by Daylight Queue Bot.">
+  <meta name="twitter:image" content="${baseUrl}/og-image.svg">`;
+}
+
+function renderPage({ title, heading, headingColor = '#cc2222', body, botName, baseUrl = '' }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
+  <link rel="icon" type="image/svg+xml" href="${FAVICON_URI}">
+  <link rel="apple-touch-icon" href="${FAVICON_URI}">${metaTags(baseUrl)}
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:#080810;color:#c8c8d8;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background-image:radial-gradient(ellipse at top,#1a0a1a 0%,#080810 70%)}
@@ -58,11 +111,12 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName })
 </html>`;
 }
 
-function renderLanding(botName, errorMsg, prefix) {
+function renderLanding(botName, errorMsg, prefix, baseUrl) {
   return renderPage({
     title: 'Enter the Fog — DbD Queue Bot',
     heading: 'Enter the Fog',
     botName,
+    baseUrl,
     body: (bot) => `
       <p class="sub">Connect your Twitch channel to the DbD Queue Bot</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
@@ -107,13 +161,20 @@ function renderError(message) {
   return `<html><body style="font-family:sans-serif;background:#080810;color:#ff6666;display:flex;align-items:center;justify-content:center;height:100vh"><p>${message}</p></body></html>`;
 }
 
-function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = () => true) {
+function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = () => true, domain = '') {
+  const baseUrl = domain ? `https://${domain}` : '';
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.urlencoded({ extended: false }));
 
+  app.get('/og-image.svg', (_req, res) => {
+    res.set('Content-Type', 'image/svg+xml');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(OG_IMAGE_SVG);
+  });
+
   app.get('/', (_req, res) => {
-    res.send(renderLanding(botName, null, prefix));
+    res.send(renderLanding(botName, null, prefix, baseUrl));
   });
 
   app.post('/onboard', rateLimit, (req, res) => {
@@ -121,20 +182,20 @@ function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = (
     const rawChannel = (req.body.channel_name || '').trim().toLowerCase().replace(/^#/, '');
 
     if (!rawCode || !rawChannel) {
-      return res.status(400).send(renderLanding(botName, 'Both fields are required.', prefix));
+      return res.status(400).send(renderLanding(botName, 'Both fields are required.', prefix, baseUrl));
     }
 
     if (!/^[a-zA-Z0-9_]{3,25}$/.test(rawChannel)) {
-      return res.status(400).send(renderLanding(botName, 'Invalid channel name. Use only letters, numbers, and underscores (3–25 characters).', prefix));
+      return res.status(400).send(renderLanding(botName, 'Invalid channel name. Use only letters, numbers, and underscores (3–25 characters).', prefix, baseUrl));
     }
 
     if (db.channelExists(rawChannel)) {
-      return res.status(400).send(renderLanding(botName, 'This channel is already connected.', prefix));
+      return res.status(400).send(renderLanding(botName, 'This channel is already connected.', prefix, baseUrl));
     }
 
     const valid = db.validateAndUseCode(rawCode, rawChannel);
     if (!valid) {
-      return res.status(400).send(renderLanding(botName, 'Invalid or already-used invite code.', prefix));
+      return res.status(400).send(renderLanding(botName, 'Invalid or already-used invite code.', prefix, baseUrl));
     }
 
     db.addChannel(rawChannel, rawChannel);

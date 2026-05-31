@@ -49,7 +49,7 @@ console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
 const { client, joinChannel, isConnected } = createBot(config, storedChannels);
 
-const app = createWebServer(joinChannel, config.botUsername, config.prefix, isConnected);
+const app = createWebServer(joinChannel, config.botUsername, config.prefix, isConnected, process.env.DOMAIN || '');
 app.listen(config.port, () => {
   console.log(`[web] Listening on port ${config.port}`);
 });
