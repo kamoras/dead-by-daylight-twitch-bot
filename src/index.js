@@ -1,6 +1,6 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const db = require('./db');
 const { createBot } = require('./bot');
 const { createWebServer } = require('./web');
@@ -34,12 +34,22 @@ if (!VALID_ROLES_MODES.includes(config.rolesMode)) {
   process.exit(1);
 }
 
+process.on('unhandledRejection', reason => {
+  console.error('[fatal] Unhandled rejection:', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', err => {
+  console.error('[fatal] Uncaught exception:', err.message);
+  process.exit(1);
+});
+
 const storedChannels = db.getActiveChannels().map(r => r.channel_name);
 console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
-const { client, joinChannel } = createBot(config, storedChannels);
+const { client, joinChannel, isConnected } = createBot(config, storedChannels);
 
-const app = createWebServer(joinChannel, config.botUsername, config.prefix);
+const app = createWebServer(joinChannel, config.botUsername, config.prefix, isConnected);
 app.listen(config.port, () => {
   console.log(`[web] Listening on port ${config.port}`);
 });

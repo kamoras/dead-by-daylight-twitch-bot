@@ -107,7 +107,7 @@ function renderError(message) {
   return `<html><body style="font-family:sans-serif;background:#080810;color:#ff6666;display:flex;align-items:center;justify-content:center;height:100vh"><p>${message}</p></body></html>`;
 }
 
-function createWebServer(joinChannel, botName, prefix = '!dbd ') {
+function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = () => true) {
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.urlencoded({ extended: false }));
@@ -146,7 +146,10 @@ function createWebServer(joinChannel, botName, prefix = '!dbd ') {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', uptimeMs: Date.now() - START_TIME });
+    const connected = isConnected();
+    res
+      .status(connected ? 200 : 503)
+      .json({ status: connected ? 'ok' : 'disconnected', uptimeMs: Date.now() - START_TIME });
   });
 
   return app;

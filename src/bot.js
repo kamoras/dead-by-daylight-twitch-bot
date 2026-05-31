@@ -21,6 +21,12 @@ function createBot(config, initialChannels = []) {
 
   const client = new tmi.Client({
     options: { debug: config.debug },
+    connection: {
+      reconnect: true,
+      maxReconnectAttempts: Infinity,
+      reconnectDecay: 1.5,
+      reconnectInterval: 1000,
+    },
     identity: {
       username: config.botUsername,
       password: config.botToken,
@@ -32,13 +38,17 @@ function createBot(config, initialChannels = []) {
     if (self) return;
     if (!message.startsWith(config.prefix)) return;
 
-    const parts = message.slice(config.prefix.length).trim().split(/\s+/);
-    const cmd = parts[0].toLowerCase();
-    const args = parts.slice(1);
-    const queue = getQueue(channel);
+    try {
+      const parts = message.slice(config.prefix.length).trim().split(/\s+/);
+      const cmd = parts[0].toLowerCase();
+      const args = parts.slice(1);
+      const queue = getQueue(channel);
 
-    queueCommands.handle(client, channel, tags, queue, cmd, args, config);
-    dbdCommands.handle(client, channel, tags, cmd, args);
+      queueCommands.handle(client, channel, tags, queue, cmd, args, config);
+      dbdCommands.handle(client, channel, tags, cmd, args);
+    } catch (err) {
+      console.error(`[bot] Error handling command in ${channel}:`, err.message);
+    }
   });
 
   client.on('connected', (addr, port) => {
@@ -46,7 +56,11 @@ function createBot(config, initialChannels = []) {
   });
 
   client.on('disconnected', reason => {
-    console.warn(`[tmi] Disconnected: ${reason}`);
+    console.warn(`[tmi] Disconnected: ${reason}. Will attempt to reconnect...`);
+  });
+
+  client.on('reconnect', () => {
+    console.log('[tmi] Reconnecting...');
   });
 
   function joinChannel(channelName) {
@@ -55,7 +69,15 @@ function createBot(config, initialChannels = []) {
     return client.join(normalized);
   }
 
-  return { client, joinChannel };
+  function isConnected() {
+    try {
+      return client.readyState() === 'OPEN';
+    } catch {
+      return false;
+    }
+  }
+
+  return { client, joinChannel, isConnected };
 }
 
 module.exports = { createBot };
