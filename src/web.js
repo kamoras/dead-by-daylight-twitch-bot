@@ -204,8 +204,8 @@ function renderLanding(botName, errorMsg, prefix, baseUrl) {
         <p>After connecting:</p>
         <ol>
           <li>Go to your Twitch channel</li>
-          <li>Type <code>/mod ${bot}</code> in chat to make the bot a moderator</li>
-          <li>Type <code>${prefix}help</code> to see all commands</li>
+          <li>Type <code>/mod ${bot}</code> — recommended to avoid rate limiting</li>
+          <li>Type <code>${prefix}help</code> in chat to see all commands</li>
         </ol>
       </div>`,
   });
@@ -223,7 +223,7 @@ function renderSuccess(botName, channelName, prefix) {
         <p>Next steps:</p>
         <ol>
           <li>Go to your Twitch channel</li>
-          <li>Type <code>/mod ${bot}</code> in chat</li>
+          <li>Type <code>/mod ${bot}</code> — recommended to avoid rate limiting</li>
           <li>Type <code>${prefix}help</code> to see all available commands</li>
         </ol>
       </div>`,
