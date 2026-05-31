@@ -184,6 +184,13 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName, b
 </html>`;
 }
 
+// Formats a command for display, handling prefixes with or without a trailing space.
+// "!dbd " + "help" → "!dbd help"; "!dbd" + "help" → "!dbd help"; "!" + "help" → "!help"
+function cmd(prefix, name) {
+  const p = prefix.trimEnd();
+  return p.length > 1 ? `${p} ${name}` : `${p}${name}`;
+}
+
 function renderLanding(botName, errorMsg, prefix, baseUrl) {
   return renderPage({
     title: 'Enter the Fog — Dead by Daylight Queue Bot',
@@ -205,7 +212,7 @@ function renderLanding(botName, errorMsg, prefix, baseUrl) {
         <ol>
           <li>Go to your Twitch channel</li>
           <li>Type <code>/mod ${bot}</code> — recommended to avoid rate limiting</li>
-          <li>Type <code>${prefix}help</code> in chat to see all commands</li>
+          <li>Type <code>${cmd(prefix, 'help')}</code> in chat to see all commands</li>
         </ol>
       </div>`,
   });
@@ -224,7 +231,7 @@ function renderSuccess(botName, channelName, prefix) {
         <ol>
           <li>Go to your Twitch channel</li>
           <li>Type <code>/mod ${bot}</code> — recommended to avoid rate limiting</li>
-          <li>Type <code>${prefix}help</code> to see all available commands</li>
+          <li>Type <code>${cmd(prefix, 'help')}</code> to see all available commands</li>
         </ol>
       </div>`,
   });
@@ -368,7 +375,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
         <div class="stat">Uptime: <strong>${formatUptime(uptimeMs)}</strong></div>
         <div class="stat">Channels: <strong>${channels.length}</strong></div>
         <div class="stat">Pending invite codes: <strong>${pendingCodes.length}</strong></div>
-        <div class="stat">Command prefix: <strong style="font-family:monospace">${prefix.trim()}</strong></div>
+        <div class="stat">Command prefix: <strong style="font-family:monospace">${cmd(prefix, '…')}</strong></div>
         <div class="stat" style="margin-top:.75rem;font-size:.72rem;color:#333">Auto-refreshes every 60s</div>
       </div>
 
