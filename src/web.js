@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const db = require('./db');
 
@@ -161,6 +162,56 @@ function renderError(message) {
   return `<html><body style="font-family:sans-serif;background:#080810;color:#ff6666;display:flex;align-items:center;justify-content:center;height:100vh"><p>${message}</p></body></html>`;
 }
 
+function renderAdmin(errorMsg) {
+  return renderPage({
+    title: 'Command Centre — DbD Queue Bot',
+    heading: 'Command Centre',
+    headingColor: '#888',
+    botName: '',
+    body: () => `
+      <p class="sub">Generate a single-use invite code for a new streamer</p>
+      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
+      <form method="POST" action="/admin/invite">
+        <label for="admin_password">Admin Password</label>
+        <input type="password" id="admin_password" name="password" autocomplete="current-password" required>
+        <button type="submit">Generate Code →</button>
+      </form>`,
+  });
+}
+
+function renderAdminSuccess(code) {
+  return renderPage({
+    title: 'Code Generated — DbD Queue Bot',
+    heading: 'Code Generated',
+    headingColor: '#33cc66',
+    botName: '',
+    body: () => `
+      <p class="sub">Share this with your streamer. It expires after one use.</p>
+      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:1.4rem;text-align:center;margin-bottom:1.5rem">
+        <span style="font-family:monospace;font-size:2rem;letter-spacing:.2em;color:#fff">${code}</span>
+      </div>
+      <a href="/admin" style="display:block;text-align:center;color:#888;font-size:.85rem;text-decoration:none">← Generate another</a>`,
+  });
+}
+
+// Stricter rate limiter for the admin endpoint — 3 attempts per 15 minutes.
+const adminAttempts = new Map();
+function adminRateLimit(req, res, next) {
+  const ip = req.ip;
+  const now = Date.now();
+  const window = 15 * 60 * 1000;
+  const entry = adminAttempts.get(ip);
+  if (entry && now < entry.resetAt) {
+    if (entry.count >= 3) {
+      return res.status(429).send(renderError('Too many attempts. Please wait 15 minutes.'));
+    }
+    entry.count += 1;
+  } else {
+    adminAttempts.set(ip, { count: 1, resetAt: now + window });
+  }
+  next();
+}
+
 function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = () => true, domain = '') {
   const baseUrl = domain ? `https://${domain}` : '';
   const app = express();
@@ -204,6 +255,24 @@ function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = (
     });
 
     return res.send(renderSuccess(botName, rawChannel, prefix));
+  });
+
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
+  app.get('/admin', (_req, res) => {
+    if (!adminPassword) return res.status(404).send(renderError('Not found.'));
+    res.send(renderAdmin());
+  });
+
+  app.post('/admin/invite', adminRateLimit, (req, res) => {
+    if (!adminPassword) return res.status(404).send(renderError('Not found.'));
+    if (req.body.password !== adminPassword) {
+      return res.status(401).send(renderAdmin('Incorrect password.'));
+    }
+    const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
+    db.createInviteCode(code);
+    return res.send(renderAdminSuccess(code));
   });
 
   app.get('/health', (_req, res) => {

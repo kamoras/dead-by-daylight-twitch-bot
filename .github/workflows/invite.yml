@@ -1,4 +1,9 @@
-name: Generate Invite Code
+name: Generate Invite Code (headless)
+
+# Prefer the admin page at https://YOUR_DOMAIN/admin — it's private by design.
+# Use this workflow only when you can't reach the web UI (e.g. server is down
+# during initial setup). The code is masked in logs and stored in the database;
+# retrieve it by SSHing into the server and querying the DB directly.
 
 on:
   workflow_dispatch:
@@ -8,10 +13,14 @@ jobs:
     name: Generate invite code on server
     runs-on: ubuntu-latest
     steps:
-      - name: Run invite script via SSH
+      - name: Generate and mask invite code
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          script: sudo docker exec dbd-bot node scripts/invite.js
+          script: |
+            CODE=$(sudo docker exec dbd-bot node scripts/invite.js --raw 2>/dev/null)
+            echo "::add-mask::$CODE"
+            echo "Invite code generated and stored in the database."
+            echo "Retrieve it from https://${{ secrets.DOMAIN }}/admin or via: sudo docker exec dbd-bot sqlite3 /app/data/bot.db 'SELECT code FROM invite_codes WHERE used=0 ORDER BY id DESC LIMIT 1;'"

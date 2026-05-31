@@ -63,6 +63,7 @@ All configuration is done via environment variables. In production these are set
 | `TWITCH_BOT_USERNAME` | ✅ | — | Twitch username of the bot account |
 | `TWITCH_BOT_TOKEN` | ✅ | — | OAuth token for the bot, prefixed with `oauth:` |
 | `DOMAIN` | ✅ | — | Your domain name — Caddy uses this to obtain a TLS certificate |
+| `ADMIN_PASSWORD` | ✅ | — | Password for the `/admin` page used to generate invite codes |
 | `BOT_PREFIX` | | `!dbd ` | Command prefix (include trailing space for multi-word prefixes) |
 | `QUEUE_ROLES_MODE` | | `both` | `off` · `both` · `survivor` · `killer` |
 | `QUEUE_MAX_SIZE` | | `20` | Maximum queue size |
@@ -185,6 +186,7 @@ Go to **Settings → Secrets and variables → Actions → Repository secrets** 
 | `TWITCH_BOT_USERNAME` | ✅ | Bot's Twitch username |
 | `TWITCH_BOT_TOKEN` | ✅ | Bot's OAuth token (`oauth:...`) |
 | `DOMAIN` | ✅ | Your domain (e.g. `bot.yourdomain.com`) |
+| `ADMIN_PASSWORD` | ✅ | Password for `https://YOUR_DOMAIN/admin` |
 | `QUEUE_ROLES_MODE` | | Defaults to `both` |
 | `QUEUE_MAX_SIZE` | | Defaults to `20` |
 | `BOT_PREFIX` | | Defaults to `!dbd ` |
@@ -213,8 +215,8 @@ cp /opt/dbd-bot/data/bot.db ~/dbd-bot-backup.sql
 
 ### 5 — Onboard a channel
 
-1. Go to **Actions → Generate Invite Code → Run workflow**.
-2. The code appears in the workflow logs.
+1. Visit `https://YOUR_DOMAIN/admin` and enter your `ADMIN_PASSWORD`.
+2. Click **Generate Code** — the code is displayed only to you, never in any logs.
 3. Share the code with the streamer.
 4. They visit `https://YOUR_DOMAIN`, enter the code and their channel name.
 5. They type `/mod YOUR_BOT_USERNAME` in their Twitch chat — done.
@@ -227,7 +229,7 @@ cp /opt/dbd-bot/data/bot.db ~/dbd-bot-backup.sql
 |----------|---------|--------------|
 | `ci.yml` | Push to `main`, any PR | Lints and runs tests |
 | `deploy.yml` | After CI passes on `main`, or manual | Builds image → pushes to ghcr.io → writes config → deploys via SSH |
-| `invite.yml` | Manual only | Generates a single-use invite code on the server; code appears in the run logs |
+| `invite.yml` | Manual only | Emergency headless fallback — generates a code on the server but masks it from logs. Use `https://YOUR_DOMAIN/admin` instead. |
 
 ---
 

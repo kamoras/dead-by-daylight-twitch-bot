@@ -12,4 +12,8 @@ const code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
 db.createInviteCode(code);
 db.close();
 
-console.log(`\nInvite code created:\n\n    ${code}\n\nShare this with the person you want to invite.\nCodes are single-use.\n`);
+if (process.argv.includes('--raw')) {
+  process.stdout.write(code);
+} else {
+  console.log(`\nInvite code created:\n\n    ${code}\n\nShare this with the person you want to invite.\nCodes are single-use.\n`);
+}
