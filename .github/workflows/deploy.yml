@@ -76,7 +76,7 @@ jobs:
             sudo systemctl enable docker
             sudo mkdir -p /opt/dbd-bot/data
             sudo chown -R $USER:$USER /opt/dbd-bot
-            sudo chown 1000:1000 /opt/dbd-bot/data
+            sudo chown -R 1000:1000 /opt/dbd-bot/data
 
       - name: Copy config files to server
         uses: appleboy/scp-action@v1.0.0
