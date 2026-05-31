@@ -73,6 +73,7 @@ jobs:
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script: |
+            sudo systemctl enable docker
             sudo mkdir -p /opt/dbd-bot/data
             sudo chown -R $USER:$USER /opt/dbd-bot
 
