@@ -255,11 +255,7 @@ Killers, survivors, perks, and maps live in `src/data/` and are community-mainta
 
 ## Contributing
 
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feat/my-feature`
-3. Make your changes and add tests if applicable.
-4. Ensure lint and tests pass: `npm run lint && npm test`
-5. Open a pull request against `main`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding standards, commit conventions, and the PR process. DbD data updates (new killers, survivors, maps, perks) are especially welcome.
 
 ---
 

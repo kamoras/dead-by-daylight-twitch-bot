@@ -1,0 +1,53 @@
+name: DbD Data Update
+description: A killer, survivor, perk, or map is missing or incorrect
+labels: ["dbd-data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to report missing or incorrect Dead by Daylight content.
+        New chapters are released regularly — community updates are very welcome!
+
+  - type: dropdown
+    id: data-type
+    attributes:
+      label: What type of data needs updating?
+      multiple: true
+      options:
+        - Killer
+        - Survivor
+        - Perk
+        - Map
+    validations:
+      required: true
+
+  - type: input
+    id: chapter
+    attributes:
+      label: Chapter / update name
+      placeholder: "e.g. Chapter 32 — Sable & The Unknown"
+
+  - type: textarea
+    id: additions
+    attributes:
+      label: Additions
+      description: List the exact in-game names to add, one per line.
+      placeholder: |
+        The Unknown
+        Sable Ward
+    validations:
+      required: true
+
+  - type: textarea
+    id: corrections
+    attributes:
+      label: Corrections (if any)
+      description: List any existing entries that are named incorrectly, with the correct name.
+
+  - type: checkboxes
+    id: verified
+    attributes:
+      label: Verification
+      options:
+        - label: I have verified these names match exactly as they appear in-game
+          required: true
