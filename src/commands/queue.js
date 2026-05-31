@@ -131,14 +131,21 @@ function handle(client, channel, tags, queue, cmd, args, config) {
     }
 
     case 'help': {
-      const joinHint = config.rolesMode === 'both'
-        ? `${c(p, 'join')} [killer]`
-        : c(p, 'join');
-      client.say(
-        channel,
-        `Dead by Daylight Queue — Everyone: ${joinHint} | ${c(p, 'leave')} | ${c(p, 'queue')} | ${c(p, 'position')} | ${c(p, 'killer')} | ${c(p, 'survivor')} | ${c(p, 'perk')} | ${c(p, 'map')} | ${c(p, 'entity')}` +
-        ` — Mods: ${c(p, 'open')} | ${c(p, 'close')} | ${c(p, 'pick')} | ${c(p, 'next')} | ${c(p, 'remove')} <user> | ${c(p, 'clear')}`
-      );
+      if (args[0]?.toLowerCase() === 'extended') {
+        const joinHint = config.rolesMode === 'both' ? `${c(p, 'join')} [killer]` : c(p, 'join');
+        client.say(
+          channel,
+          `Dead by Daylight Queue — Everyone: ${joinHint} | ${c(p, 'leave')} | ${c(p, 'queue')} | ${c(p, 'position')} | ${c(p, 'killer')} | ${c(p, 'survivor')} | ${c(p, 'perk')} [killer/survivor] | ${c(p, 'map')} | ${c(p, 'entity')}` +
+          ` — Mods: ${c(p, 'open')} | ${c(p, 'close')} | ${c(p, 'pick')} [n] | ${c(p, 'next')} | ${c(p, 'remove')} <user> | ${c(p, 'clear')}`
+        );
+      } else {
+        client.say(
+          channel,
+          `Queue: ${c(p, 'join')} to sign up | ${c(p, 'leave')} to drop out | ${c(p, 'queue')} to see the list | ${c(p, 'position')} for your spot` +
+          ` — Mods: ${c(p, 'open')} | ${c(p, 'close')} | ${c(p, 'pick')} [n]` +
+          ` — ${c(p, 'help')} extended for all commands`
+        );
+      }
       break;
     }
 
