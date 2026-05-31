@@ -63,8 +63,14 @@ module.exports = {
     ).all();
   },
 
-  getPendingCodeCount() {
-    return db.prepare('SELECT COUNT(*) AS count FROM invite_codes WHERE used = 0').get().count;
+  getPendingCodes() {
+    return db.prepare(
+      'SELECT id, code, created_at FROM invite_codes WHERE used = 0 ORDER BY created_at DESC'
+    ).all();
+  },
+
+  deleteInviteCode(id) {
+    db.prepare('DELETE FROM invite_codes WHERE id = ? AND used = 0').run(id);
   },
 
   close() {

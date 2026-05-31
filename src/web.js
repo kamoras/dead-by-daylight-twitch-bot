@@ -273,6 +273,8 @@ const ADMIN_CSS = `
   .badge.open{background:rgba(51,204,102,.12);color:#33cc66}
   .badge.closed{background:rgba(200,50,50,.12);color:#cc5555}
   .empty{color:#444;font-size:.85rem;padding:.5rem 0}
+  .btn-revoke{background:transparent;border:1px solid rgba(180,0,0,.25);color:#994444;padding:.2rem .55rem;border-radius:3px;cursor:pointer;font-size:.72rem;transition:all .15s}
+  .btn-revoke:hover{background:rgba(180,0,0,.1);border-color:#cc3333;color:#cc5555}
   .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
   .login-card{background:rgba(20,10,25,.95);border:1px solid rgba(180,0,0,.3);border-radius:8px;padding:2.5rem;width:100%;max-width:380px}
   .login-card h1{font-size:1.4rem;color:#888;margin-bottom:.4rem;letter-spacing:.05em}
@@ -311,6 +313,16 @@ function renderLoginPage(adminPath, errorMsg) {
 }
 
 function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, pendingCodes, generatedCode, prefix }) {
+  const pendingRows = pendingCodes.map(c => `<tr>
+    <td style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
+    <td>${formatDate(c.created_at)}</td>
+    <td>
+      <form method="POST" action="/admin/${adminPath}/revoke" style="margin:0">
+        <input type="hidden" name="id" value="${c.id}">
+        <button class="btn-revoke" type="submit">Revoke</button>
+      </form>
+    </td>
+  </tr>`).join('');
   const rows = channels.map(ch => {
     const stats = channelStatsMap.get(ch.channel_name) || { size: 0, isOpen: true };
     const badge = stats.isOpen
@@ -355,7 +367,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
         </div>
         <div class="stat">Uptime: <strong>${formatUptime(uptimeMs)}</strong></div>
         <div class="stat">Channels: <strong>${channels.length}</strong></div>
-        <div class="stat">Pending invite codes: <strong>${pendingCodes}</strong></div>
+        <div class="stat">Pending invite codes: <strong>${pendingCodes.length}</strong></div>
         <div class="stat">Command prefix: <strong style="font-family:monospace">${prefix.trim()}</strong></div>
         <div class="stat" style="margin-top:.75rem;font-size:.72rem;color:#333">Auto-refreshes every 60s</div>
       </div>
@@ -379,6 +391,16 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
         : `<table>
             <thead><tr><th>Channel</th><th>Connected since</th><th>In queue</th><th>Queue</th></tr></thead>
             <tbody>${rows}</tbody>
+          </table>`}
+    </div>
+
+    <div class="card full">
+      <h2>Pending Invite Codes</h2>
+      ${pendingCodes.length === 0
+        ? '<p class="empty">No pending codes.</p>'
+        : `<table>
+            <thead><tr><th>Code</th><th>Created</th><th></th></tr></thead>
+            <tbody>${pendingRows}</tbody>
           </table>`}
     </div>
   </div>
@@ -466,7 +488,7 @@ function createWebServer(
         uptimeMs: Date.now() - START_TIME,
         channels: db.getChannelList(),
         channelStatsMap: statsMap,
-        pendingCodes: db.getPendingCodeCount(),
+        pendingCodes: db.getPendingCodes(),
         generatedCode,
       }));
     }
@@ -495,6 +517,12 @@ function createWebServer(
       const code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
       db.createInviteCode(code);
       buildDashboard(req, res, code);
+    });
+
+    app.post(`/admin/${adminPath}/revoke`, requireAuth, (req, res) => {
+      const id = parseInt(req.body.id, 10);
+      if (!isNaN(id)) db.deleteInviteCode(id);
+      res.redirect(302, `/admin/${adminPath}`);
     });
 
     app.get(`/admin/${adminPath}/logout`, (req, res) => {
