@@ -7,6 +7,28 @@ const db = require('./db');
 const START_TIME = Date.now();
 
 // ---------------------------------------------------------------------------
+// Webhook stats (in-memory, resets on restart)
+// ---------------------------------------------------------------------------
+
+const webhookStats = {
+  received: 0,
+  verified: 0,
+  rejected: 0,
+  notifications: 0,
+  lastReceivedAt: null,
+  recentEvents: [], // [{channel, time}], capped at 20
+};
+
+function recordWebhookReceived() { webhookStats.received += 1; webhookStats.lastReceivedAt = Date.now(); }
+function recordWebhookVerified() { webhookStats.verified += 1; }
+function recordWebhookRejected() { webhookStats.rejected += 1; }
+function recordStreamOffline(channel) {
+  webhookStats.notifications += 1;
+  webhookStats.recentEvents.unshift({ channel, time: Date.now() });
+  if (webhookStats.recentEvents.length > 20) webhookStats.recentEvents.pop();
+}
+
+// ---------------------------------------------------------------------------
 // SVG assets
 // ---------------------------------------------------------------------------
 
@@ -114,6 +136,17 @@ function formatUptime(ms) {
   if (h > 0) return `${h}h ${m % 60}m`;
   if (m > 0) return `${m}m`;
   return `${s}s`;
+}
+
+function formatTimeAgo(ts) {
+  if (!ts) return 'never';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 function formatDate(sqliteDate) {
@@ -319,7 +352,7 @@ function renderLoginPage(adminPath, errorMsg) {
 </html>`;
 }
 
-function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, pendingCodes, generatedCode, prefix }) {
+function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, pendingCodes, generatedCode, prefix, webhook }) {
   const pendingRows = pendingCodes.map(c => `<tr>
     <td style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
     <td>${formatDate(c.created_at)}</td>
@@ -410,6 +443,40 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
             <tbody>${pendingRows}</tbody>
           </table>`}
     </div>
+
+    <div class="card full">
+      <h2>Webhook Activity</h2>
+      ${!webhook.enabled
+        ? `<p class="empty">EventSub not configured — set <code style="font-size:.8rem">TWITCH_CLIENT_ID</code>, <code style="font-size:.8rem">TWITCH_CLIENT_SECRET</code> and <code style="font-size:.8rem">TWITCH_WEBHOOK_SECRET</code> to enable stream-end auto-detection.</p>`
+        : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.25rem">
+            <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:.9rem;text-align:center">
+              <div style="font-size:1.6rem;font-weight:700;color:#fff">${webhook.received}</div>
+              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Received</div>
+            </div>
+            <div style="background:rgba(51,204,102,.06);border-radius:6px;padding:.9rem;text-align:center">
+              <div style="font-size:1.6rem;font-weight:700;color:#33cc66">${webhook.verified}</div>
+              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Verified</div>
+            </div>
+            <div style="background:rgba(200,50,50,.06);border-radius:6px;padding:.9rem;text-align:center">
+              <div style="font-size:1.6rem;font-weight:700;color:#cc3333">${webhook.rejected}</div>
+              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Rejected</div>
+            </div>
+            <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:.9rem;text-align:center">
+              <div style="font-size:1.6rem;font-weight:700;color:#fff">${webhook.notifications}</div>
+              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Stream Ends</div>
+            </div>
+          </div>
+          <div class="stat" style="margin-bottom:1rem">Last received: <strong>${formatTimeAgo(webhook.lastReceivedAt)}</strong></div>
+          ${webhook.recentEvents.length === 0
+            ? '<p class="empty">No stream.offline events received yet.</p>'
+            : `<table>
+                <thead><tr><th>Channel</th><th>Stream ended</th></tr></thead>
+                <tbody>
+                  ${webhook.recentEvents.map(e => `<tr><td>#${e.channel}</td><td>${formatTimeAgo(e.time)}</td></tr>`).join('')}
+                </tbody>
+              </table>`}
+        `}
+    </div>
   </div>
 </body>
 </html>`;
@@ -451,10 +518,14 @@ function createWebServer(
       const signature = req.headers['twitch-eventsub-message-signature'] ?? '';
       const messageType = req.headers['twitch-eventsub-message-type'] ?? '';
 
+      recordWebhookReceived();
+
       if (!verifySignature(webhookSecret, messageId, timestamp, req.body.toString(), signature)) {
+        recordWebhookRejected();
         return res.status(403).end();
       }
 
+      recordWebhookVerified();
       const body = JSON.parse(req.body.toString());
 
       if (messageType === 'webhook_callback_verification') {
@@ -463,7 +534,10 @@ function createWebServer(
 
       if (messageType === 'notification' && body.subscription?.type === 'stream.offline') {
         const channel = body.event?.broadcaster_user_login;
-        if (channel) onStreamOffline(channel);
+        if (channel) {
+          recordStreamOffline(channel);
+          onStreamOffline(channel);
+        }
       }
 
       res.status(204).end();
@@ -530,6 +604,7 @@ function createWebServer(
         channelStatsMap: statsMap,
         pendingCodes: db.getPendingCodes(),
         generatedCode,
+        webhook: { enabled: !!webhookSecret, ...webhookStats },
       }));
     }
 
