@@ -8,7 +8,11 @@ const { createWebServer } = require('./web');
 const config = {
   botUsername: process.env.TWITCH_BOT_USERNAME,
   botToken: process.env.TWITCH_BOT_TOKEN,
-  prefix: process.env.BOT_PREFIX || '!dbd ',
+  prefix: (() => {
+    const p = process.env.BOT_PREFIX || '!dbd ';
+    // Multi-char prefixes need a trailing space so "!dbd" + "join" → "!dbd join"
+    return p.length > 1 && !p.endsWith(' ') ? p + ' ' : p;
+  })(),
   rolesMode: process.env.QUEUE_ROLES_MODE || 'off',
   queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '20', 10),
   port: Number(process.env.PORT) || 8080,

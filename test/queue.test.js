@@ -109,6 +109,16 @@ describe('Queue', () => {
     assert.equal(q.entries[0].username, 'bob');
   });
 
+  it('close clears the queue for next session', () => {
+    const q = new Queue();
+    q.join('alice');
+    q.join('bob');
+    const result = q.close();
+    assert.equal(result.success, true);
+    assert.equal(q.size, 0);
+    assert.equal(q.isOpen, false);
+  });
+
   it('clear empties the queue', () => {
     const q = new Queue();
     q.join('alice');
@@ -132,20 +142,21 @@ describe('Queue', () => {
   });
 
   describe('rolesMode: both', () => {
-    it('requires a role argument', () => {
+    it('defaults to survivor when no role is given', () => {
       const q = new Queue({ rolesMode: 'both' });
       const result = q.join('alice');
-      assert.equal(result.success, false);
-      assert.match(result.message, /specify a role/);
+      assert.equal(result.success, true);
+      assert.equal(q.entries[0].role, 'survivor');
     });
 
-    it('rejects invalid role arguments', () => {
+    it('rejects unknown role arguments', () => {
       const q = new Queue({ rolesMode: 'both' });
       const result = q.join('alice', 'healer');
       assert.equal(result.success, false);
+      assert.equal(result.code, 'INVALID_ROLE');
     });
 
-    it('accepts survivor role', () => {
+    it('accepts explicit survivor role', () => {
       const q = new Queue({ rolesMode: 'both' });
       const result = q.join('alice', 'survivor');
       assert.equal(result.success, true);

@@ -32,13 +32,13 @@ class Queue {
     let role = null;
     if (this.rolesMode === 'both') {
       const normalized = roleArg?.toLowerCase();
-      if (normalized !== 'survivor' && normalized !== 'killer') {
-        return {
-          success: false,
-          message: `@${username}, please specify a role: !join survivor or !join killer`,
-        };
+      if (normalized === 'killer') {
+        role = 'killer';
+      } else if (!normalized || normalized === 'survivor') {
+        role = 'survivor'; // survivor is the default
+      } else {
+        return { success: false, code: 'INVALID_ROLE', message: `@${username}, unknown role. Use survivor (default) or killer.` };
       }
-      role = normalized;
     } else if (this.rolesMode === 'survivor') {
       role = 'survivor';
     } else if (this.rolesMode === 'killer') {
@@ -110,7 +110,7 @@ class Queue {
       return { success: false, message: 'The queue is already open.' };
     }
     this.isOpen = true;
-    return { success: true, message: 'Queue is now open! Type !join to get in line. 🟢' };
+    return { success: true, message: 'Queue is now open! 🟢' };
   }
 
   close() {
@@ -118,7 +118,8 @@ class Queue {
       return { success: false, message: 'The queue is already closed.' };
     }
     this.isOpen = false;
-    return { success: true, message: 'Queue is now closed. 🔴' };
+    this.entries = []; // clear the queue when the stream session ends
+    return { success: true, message: 'Queue is now closed and cleared for next session. 🔴' };
   }
 
   position(username) {

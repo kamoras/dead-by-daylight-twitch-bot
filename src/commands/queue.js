@@ -17,6 +17,12 @@ function formatEntries(entries) {
     .join(' · ');
 }
 
+// Formats a prefixed command correctly whether or not the prefix has a trailing space.
+function c(prefix, name) {
+  const p = prefix.trimEnd();
+  return p.length > 1 ? `${p} ${name}` : `${p}${name}`;
+}
+
 function handle(client, channel, tags, queue, cmd, args, config) {
   const username = tags['display-name'] || tags.username;
   const mod = isMod(tags, channel);
@@ -25,7 +31,11 @@ function handle(client, channel, tags, queue, cmd, args, config) {
   switch (cmd) {
     case 'join': {
       const result = queue.join(username, args[0]);
-      client.say(channel, result.message);
+      if (!result.success && result.code === 'INVALID_ROLE') {
+        client.say(channel, `@${username}, use ${c(p, 'join')} to join as survivor (default) or ${c(p, 'join')} killer to join as killer.`);
+      } else {
+        client.say(channel, result.message);
+      }
       break;
     }
 
@@ -38,20 +48,16 @@ function handle(client, channel, tags, queue, cmd, args, config) {
     case 'queue':
     case 'q': {
       if (queue.size === 0) {
-        const hint =
-          config.rolesMode === 'both'
-            ? `Use ${p}join survivor or ${p}join killer to sign up.`
-            : `Use ${p}join to sign up.`;
+        const hint = config.rolesMode === 'both'
+          ? `Use ${c(p, 'join')} (survivor) or ${c(p, 'join')} killer.`
+          : `Use ${c(p, 'join')} to sign up.`;
         client.say(channel, `The queue is empty! ${hint}`);
         break;
       }
       const status = queue.isOpen ? '🟢 Open' : '🔴 Closed';
       const preview = queue.list(5);
       const more = queue.size > 5 ? ` · +${queue.size - 5} more` : '';
-      client.say(
-        channel,
-        `Queue [${status}] ${queue.size} total: ${formatEntries(preview)}${more}`
-      );
+      client.say(channel, `Queue [${status}] ${queue.size} total: ${formatEntries(preview)}${more}`);
       break;
     }
 
@@ -59,16 +65,12 @@ function handle(client, channel, tags, queue, cmd, args, config) {
     case 'pos': {
       const pos = queue.position(username);
       if (pos === 0) {
-        const hint =
-          config.rolesMode === 'both'
-            ? `${p}join survivor / ${p}join killer`
-            : `${p}join`;
+        const hint = config.rolesMode === 'both'
+          ? `${c(p, 'join')} or ${c(p, 'join')} killer`
+          : c(p, 'join');
         client.say(channel, `@${username}, you're not in the queue. Use ${hint} to sign up!`);
       } else {
-        client.say(
-          channel,
-          `@${username}, you're #${pos} in the queue (${queue.size} total).`
-        );
+        client.say(channel, `@${username}, you're #${pos} in the queue (${queue.size} total).`);
       }
       break;
     }
@@ -91,7 +93,7 @@ function handle(client, channel, tags, queue, cmd, args, config) {
       if (!mod) break;
       const target = args[0]?.replace(/^@/, '');
       if (!target) {
-        client.say(channel, `@${username}, usage: ${p}remove <username>`);
+        client.say(channel, `@${username}, usage: ${c(p, 'remove')} <username>`);
         break;
       }
       const resultRemove = queue.remove(target);
@@ -109,7 +111,14 @@ function handle(client, channel, tags, queue, cmd, args, config) {
     case 'open': {
       if (!mod) break;
       const resultOpen = queue.open();
-      client.say(channel, resultOpen.message);
+      if (resultOpen.success) {
+        const hint = config.rolesMode === 'both'
+          ? `${c(p, 'join')} or ${c(p, 'join')} killer`
+          : c(p, 'join');
+        client.say(channel, `${resultOpen.message} Type ${hint} to get in line.`);
+      } else {
+        client.say(channel, resultOpen.message);
+      }
       break;
     }
 
@@ -121,12 +130,13 @@ function handle(client, channel, tags, queue, cmd, args, config) {
     }
 
     case 'help': {
-      const joinHint =
-        config.rolesMode === 'both' ? `${p}join survivor/killer` : `${p}join`;
+      const joinHint = config.rolesMode === 'both'
+        ? `${c(p, 'join')} [killer]`
+        : c(p, 'join');
       client.say(
         channel,
-        `DbD Queue — Everyone: ${joinHint} | ${p}leave | ${p}queue | ${p}position | ${p}killer | ${p}survivor | ${p}perk | ${p}map | ${p}entity` +
-          ` — Mods: ${p}open | ${p}close | ${p}pick | ${p}next | ${p}remove <user> | ${p}clear`
+        `Dead by Daylight Queue — Everyone: ${joinHint} | ${c(p, 'leave')} | ${c(p, 'queue')} | ${c(p, 'position')} | ${c(p, 'killer')} | ${c(p, 'survivor')} | ${c(p, 'perk')} | ${c(p, 'map')} | ${c(p, 'entity')}` +
+        ` — Mods: ${c(p, 'open')} | ${c(p, 'close')} | ${c(p, 'pick')} | ${c(p, 'next')} | ${c(p, 'remove')} <user> | ${c(p, 'clear')}`
       );
       break;
     }
