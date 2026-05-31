@@ -127,11 +127,11 @@ function metaTags(baseUrl) {
   return `
   <meta property="og:type" content="website">
   <meta property="og:url" content="${baseUrl}">
-  <meta property="og:title" content="DbD Queue Bot — Enter the Fog">
+  <meta property="og:title" content="Dead by Daylight Queue Bot — Enter the Fog">
   <meta property="og:description" content="Connect your Twitch channel to the Dead by Daylight Queue Bot. Invite-only, multi-channel, free.">
   <meta property="og:image" content="${baseUrl}/og-image.svg">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="DbD Queue Bot — Enter the Fog">
+  <meta name="twitter:title" content="Dead by Daylight Queue Bot — Enter the Fog">
   <meta name="twitter:description" content="Connect your Twitch channel to the Dead by Daylight Queue Bot.">
   <meta name="twitter:image" content="${baseUrl}/og-image.svg">`;
 }
@@ -165,6 +165,9 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName, b
     .steps ol{font-size:.82rem;color:#888;padding-left:1.2rem;line-height:1.8}
     .steps code{background:rgba(255,255,255,.08);padding:.1rem .35rem;border-radius:3px;font-size:.82rem}
     .error{background:rgba(180,0,0,.15);border:1px solid rgba(180,0,0,.4);border-radius:4px;padding:.75rem 1rem;margin-bottom:1.2rem;color:#ff6666;font-size:.9rem}
+    footer{margin-top:1.5rem;text-align:center;font-size:.75rem;color:#2a2a35}
+    footer a{color:#333;text-decoration:none}
+    footer a:hover{color:#666}
   </style>
 </head>
 <body>
@@ -172,18 +175,23 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName, b
     <h1>${heading}</h1>
     ${body(botName)}
   </div>
+  <footer>
+    Built by <a href="https://github.com/kamoras" target="_blank" rel="noopener">kamoras</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/kamoras/dead-by-daylight-twitch-bot" target="_blank" rel="noopener">Open source on GitHub</a>
+  </footer>
 </body>
 </html>`;
 }
 
 function renderLanding(botName, errorMsg, prefix, baseUrl) {
   return renderPage({
-    title: 'Enter the Fog — DbD Queue Bot',
+    title: 'Enter the Fog — Dead by Daylight Queue Bot',
     heading: 'Enter the Fog',
     botName,
     baseUrl,
     body: (bot) => `
-      <p class="sub">Connect your Twitch channel to the DbD Queue Bot</p>
+      <p class="sub">Connect your Twitch channel to the Dead by Daylight Queue Bot</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
       <form method="POST" action="/onboard">
         <label for="invite_code">Invite Code</label>
@@ -281,7 +289,7 @@ function renderLoginPage(adminPath, errorMsg) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin — DbD Queue Bot</title>
+  <title>Admin — Dead by Daylight Queue Bot</title>
   <link rel="icon" type="image/svg+xml" href="${FAVICON_URI}">
   <style>${ADMIN_CSS}</style>
 </head>
@@ -321,7 +329,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin — DbD Queue Bot</title>
+  <title>Admin — Dead by Daylight Queue Bot</title>
   <link rel="icon" type="image/svg+xml" href="${FAVICON_URI}">
   <meta http-equiv="refresh" content="60">
   <style>${ADMIN_CSS}</style>
@@ -331,7 +339,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
     <div class="header">
       <div class="header-left">
         <div class="dot ${connected ? 'ok' : 'err'}"></div>
-        <h1>DbD Queue Bot &nbsp;/&nbsp; Admin</h1>
+        <h1>Dead by Daylight Queue Bot &nbsp;/&nbsp; Admin</h1>
       </div>
       <div class="header-right">
         <a href="/admin/${adminPath}/logout">Sign out</a>
