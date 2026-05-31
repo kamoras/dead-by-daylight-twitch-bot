@@ -103,6 +103,7 @@ jobs:
             PORT=8080
             DOMAIN=${{ secrets.DOMAIN }}
             ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+            ADMIN_PATH=${{ secrets.ADMIN_PATH }}
             ENVEOF
             cd /opt/dbd-bot
             sudo docker compose pull

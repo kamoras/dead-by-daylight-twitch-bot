@@ -47,9 +47,9 @@ process.on('uncaughtException', err => {
 const storedChannels = db.getActiveChannels().map(r => r.channel_name);
 console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
-const { client, joinChannel, isConnected } = createBot(config, storedChannels);
+const { client, joinChannel, isConnected, getChannelStats } = createBot(config, storedChannels);
 
-const app = createWebServer(joinChannel, config.botUsername, config.prefix, isConnected, process.env.DOMAIN || '');
+const app = createWebServer(joinChannel, config.botUsername, config.prefix, isConnected, process.env.DOMAIN || '', getChannelStats);
 app.listen(config.port, () => {
   console.log(`[web] Listening on port ${config.port}`);
 });

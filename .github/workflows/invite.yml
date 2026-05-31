@@ -23,4 +23,4 @@ jobs:
             CODE=$(sudo docker exec dbd-bot node scripts/invite.js --raw 2>/dev/null)
             echo "::add-mask::$CODE"
             echo "Invite code generated and stored in the database."
-            echo "Retrieve it from https://${{ secrets.DOMAIN }}/admin or via: sudo docker exec dbd-bot sqlite3 /app/data/bot.db 'SELECT code FROM invite_codes WHERE used=0 ORDER BY id DESC LIMIT 1;'"
+            echo "Retrieve it from https://${{ secrets.DOMAIN }}/admin/${{ secrets.ADMIN_PATH }} or via: sudo docker exec dbd-bot sqlite3 /app/data/bot.db 'SELECT code FROM invite_codes WHERE used=0 ORDER BY id DESC LIMIT 1;'"

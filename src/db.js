@@ -57,6 +57,16 @@ module.exports = {
     db.prepare('INSERT INTO invite_codes (code) VALUES (?)').run(code.toUpperCase());
   },
 
+  getChannelList() {
+    return db.prepare(
+      'SELECT channel_name, added_at FROM channels WHERE active = 1 ORDER BY added_at DESC'
+    ).all();
+  },
+
+  getPendingCodeCount() {
+    return db.prepare('SELECT COUNT(*) AS count FROM invite_codes WHERE used = 0').get().count;
+  },
+
   close() {
     db.close();
   },

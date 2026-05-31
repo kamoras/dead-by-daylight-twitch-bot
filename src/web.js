@@ -6,6 +6,10 @@ const db = require('./db');
 
 const START_TIME = Date.now();
 
+// ---------------------------------------------------------------------------
+// SVG assets
+// ---------------------------------------------------------------------------
+
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="6" fill="#0a0a10"/>
   <g stroke="#cc2222" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="2.2">
@@ -43,22 +47,79 @@ const OG_IMAGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 
   <text x="416" y="428" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="28" fill="#555577" letter-spacing="4">Invite-only  •  Multi-channel  •  Free</text>
 </svg>`;
 
-// Basic in-memory rate limiter for the onboarding endpoint.
-const attempts = new Map();
-function rateLimit(req, res, next) {
-  const ip = req.ip;
-  const now = Date.now();
-  const window = 15 * 60 * 1000; // 15 minutes
-  const entry = attempts.get(ip);
-  if (entry && now < entry.resetAt) {
-    if (entry.count >= 5) {
-      return res.status(429).send(renderError('Too many attempts. Please wait 15 minutes and try again.'));
-    }
-    entry.count += 1;
-  } else {
-    attempts.set(ip, { count: 1, resetAt: now + window });
+// ---------------------------------------------------------------------------
+// Session management (in-memory, 8-hour TTL)
+// ---------------------------------------------------------------------------
+
+const sessions = new Map(); // token -> expiresAt
+
+function createSession() {
+  const token = crypto.randomBytes(16).toString('hex');
+  sessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
+  return token;
+}
+
+function isValidSession(token) {
+  if (!token || !sessions.has(token)) return false;
+  if (Date.now() > sessions.get(token)) {
+    sessions.delete(token);
+    return false;
   }
-  next();
+  return true;
+}
+
+function getSessionToken(req) {
+  const raw = req.headers.cookie || '';
+  const pair = raw.split(';').map(s => s.trim()).find(s => s.startsWith('admin_session='));
+  return pair ? decodeURIComponent(pair.split('=').slice(1).join('=')) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Rate limiters
+// ---------------------------------------------------------------------------
+
+function makeRateLimiter(maxAttempts, windowMs) {
+  const map = new Map();
+  function limiter(req, res, next) {
+    const ip = req.ip;
+    const now = Date.now();
+    const entry = map.get(ip);
+    if (entry && now < entry.resetAt) {
+      if (entry.count >= maxAttempts) {
+        return res.status(429).send(renderError('Too many attempts. Please wait and try again.'));
+      }
+      entry.count += 1;
+    } else {
+      map.set(ip, { count: 1, resetAt: now + windowMs });
+    }
+    next();
+  }
+  limiter._map = map;
+  return limiter;
+}
+
+const onboardRateLimit = makeRateLimiter(5, 15 * 60 * 1000);
+const adminRateLimit = makeRateLimiter(3, 15 * 60 * 1000);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
+
+function formatDate(sqliteDate) {
+  return new Date(sqliteDate.replace(' ', 'T') + 'Z').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
 }
 
 function metaTags(baseUrl) {
@@ -74,6 +135,10 @@ function metaTags(baseUrl) {
   <meta name="twitter:description" content="Connect your Twitch channel to the Dead by Daylight Queue Bot.">
   <meta name="twitter:image" content="${baseUrl}/og-image.svg">`;
 }
+
+// ---------------------------------------------------------------------------
+// Public page rendering
+// ---------------------------------------------------------------------------
 
 function renderPage({ title, heading, headingColor = '#cc2222', body, botName, baseUrl = '' }) {
   return `<!DOCTYPE html>
@@ -99,7 +164,6 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName, b
     .steps p{font-size:.8rem;color:#666;margin-bottom:.5rem}
     .steps ol{font-size:.82rem;color:#888;padding-left:1.2rem;line-height:1.8}
     .steps code{background:rgba(255,255,255,.08);padding:.1rem .35rem;border-radius:3px;font-size:.82rem}
-    .steps strong{color:#ccc}
     .error{background:rgba(180,0,0,.15);border:1px solid rgba(180,0,0,.4);border-radius:4px;padding:.75rem 1rem;margin-bottom:1.2rem;color:#ff6666;font-size:.9rem}
   </style>
 </head>
@@ -162,61 +226,179 @@ function renderError(message) {
   return `<html><body style="font-family:sans-serif;background:#080810;color:#ff6666;display:flex;align-items:center;justify-content:center;height:100vh"><p>${message}</p></body></html>`;
 }
 
-function renderAdmin(errorMsg) {
-  return renderPage({
-    title: 'Command Centre — DbD Queue Bot',
-    heading: 'Command Centre',
-    headingColor: '#888',
-    botName: '',
-    body: () => `
-      <p class="sub">Generate a single-use invite code for a new streamer</p>
-      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-      <form method="POST" action="/admin/invite">
-        <label for="admin_password">Admin Password</label>
-        <input type="password" id="admin_password" name="password" autocomplete="current-password" required>
-        <button type="submit">Generate Code →</button>
-      </form>`,
-  });
+// ---------------------------------------------------------------------------
+// Admin page rendering
+// ---------------------------------------------------------------------------
+
+const ADMIN_CSS = `
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#080810;color:#c8c8d8;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;background-image:radial-gradient(ellipse at top,#1a0a1a 0%,#080810 70%)}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:960px;margin:0 auto;padding:1.5rem}
+  .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid rgba(255,255,255,.07)}
+  .header-left{display:flex;align-items:center;gap:.75rem}
+  .header h1{font-size:1rem;color:#666;font-weight:400;letter-spacing:.06em;text-transform:uppercase}
+  .header-right{font-size:.8rem;color:#444}
+  .header-right a:hover{color:#888}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+  .card{background:rgba(20,10,25,.95);border:1px solid rgba(180,0,0,.2);border-radius:8px;padding:1.4rem}
+  .card.full{grid-column:1/-1}
+  .card h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:#444;margin-bottom:1.1rem}
+  .stat{display:flex;align-items:center;gap:.55rem;margin-bottom:.55rem;font-size:.88rem;color:#999}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot.ok{background:#33cc66}
+  .dot.err{background:#cc3333}
+  .stat strong{color:#ccc}
+  .code-box{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:1.1rem;text-align:center;margin-bottom:1rem}
+  .code-box span{font-family:monospace;font-size:1.7rem;letter-spacing:.2em;color:#fff}
+  .code-note{font-size:.75rem;color:#555;text-align:center;margin-bottom:1rem}
+  .btn{width:100%;padding:.6rem;background:#8b0000;color:#fff;border:none;border-radius:4px;font-size:.9rem;cursor:pointer;transition:background .2s}
+  .btn:hover{background:#a00000}
+  .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,.1);color:#666;font-size:.8rem;margin-top:.5rem}
+  .btn.secondary:hover{color:#999;border-color:rgba(255,255,255,.2)}
+  table{width:100%;border-collapse:collapse;font-size:.83rem}
+  thead th{text-align:left;color:#444;font-weight:400;font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;padding:.35rem .6rem;border-bottom:1px solid rgba(255,255,255,.06)}
+  tbody td{padding:.5rem .6rem;color:#888;border-bottom:1px solid rgba(255,255,255,.04)}
+  tbody td:first-child{color:#bbb}
+  tbody tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;padding:.15rem .45rem;border-radius:3px;font-size:.72rem;letter-spacing:.04em}
+  .badge.open{background:rgba(51,204,102,.12);color:#33cc66}
+  .badge.closed{background:rgba(200,50,50,.12);color:#cc5555}
+  .empty{color:#444;font-size:.85rem;padding:.5rem 0}
+  .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .login-card{background:rgba(20,10,25,.95);border:1px solid rgba(180,0,0,.3);border-radius:8px;padding:2.5rem;width:100%;max-width:380px}
+  .login-card h1{font-size:1.4rem;color:#888;margin-bottom:.4rem;letter-spacing:.05em}
+  .login-card .sub{font-size:.85rem;color:#555;margin-bottom:1.8rem}
+  label{display:block;font-size:.82rem;color:#888;margin-bottom:.35rem}
+  input[type=password]{width:100%;padding:.6rem .85rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:#e8e8e8;font-size:.9rem;margin-bottom:1.1rem;outline:none;transition:border-color .2s}
+  input[type=password]:focus{border-color:rgba(180,0,0,.6)}
+  .error-msg{background:rgba(180,0,0,.12);border:1px solid rgba(180,0,0,.3);border-radius:4px;padding:.65rem .9rem;margin-bottom:1rem;color:#ff6666;font-size:.85rem}
+  @media(max-width:580px){.grid{grid-template-columns:1fr}}`;
+
+function renderLoginPage(adminPath, errorMsg) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — DbD Queue Bot</title>
+  <link rel="icon" type="image/svg+xml" href="${FAVICON_URI}">
+  <style>${ADMIN_CSS}</style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <h1>Command Centre</h1>
+      <p class="sub">Sign in to manage the bot</p>
+      ${errorMsg ? `<div class="error-msg">${errorMsg}</div>` : ''}
+      <form method="POST" action="/admin/${adminPath}/login">
+        <label for="pw">Password</label>
+        <input type="password" id="pw" name="password" autocomplete="current-password" autofocus required>
+        <button class="btn" type="submit">Sign in →</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
-function renderAdminSuccess(code) {
-  return renderPage({
-    title: 'Code Generated — DbD Queue Bot',
-    heading: 'Code Generated',
-    headingColor: '#33cc66',
-    botName: '',
-    body: () => `
-      <p class="sub">Share this with your streamer. It expires after one use.</p>
-      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:1.4rem;text-align:center;margin-bottom:1.5rem">
-        <span style="font-family:monospace;font-size:2rem;letter-spacing:.2em;color:#fff">${code}</span>
+function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, pendingCodes, generatedCode, prefix }) {
+  const rows = channels.map(ch => {
+    const stats = channelStatsMap.get(ch.channel_name) || { size: 0, isOpen: true };
+    const badge = stats.isOpen
+      ? '<span class="badge open">Open</span>'
+      : '<span class="badge closed">Closed</span>';
+    return `<tr>
+      <td>#${ch.channel_name}</td>
+      <td>${formatDate(ch.added_at)}</td>
+      <td>${stats.size}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — DbD Queue Bot</title>
+  <link rel="icon" type="image/svg+xml" href="${FAVICON_URI}">
+  <meta http-equiv="refresh" content="60">
+  <style>${ADMIN_CSS}</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="header-left">
+        <div class="dot ${connected ? 'ok' : 'err'}"></div>
+        <h1>DbD Queue Bot &nbsp;/&nbsp; Admin</h1>
       </div>
-      <a href="/admin" style="display:block;text-align:center;color:#888;font-size:.85rem;text-decoration:none">← Generate another</a>`,
-  });
+      <div class="header-right">
+        <a href="/admin/${adminPath}/logout">Sign out</a>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Bot Status</h2>
+        <div class="stat">
+          <span class="dot ${connected ? 'ok' : 'err'}"></span>
+          <span>${connected ? '<strong>Connected</strong>' : '<strong style="color:#cc3333">Disconnected</strong>'} as ${botName}</span>
+        </div>
+        <div class="stat">Uptime: <strong>${formatUptime(uptimeMs)}</strong></div>
+        <div class="stat">Channels: <strong>${channels.length}</strong></div>
+        <div class="stat">Pending invite codes: <strong>${pendingCodes}</strong></div>
+        <div class="stat">Command prefix: <strong style="font-family:monospace">${prefix.trim()}</strong></div>
+        <div class="stat" style="margin-top:.75rem;font-size:.72rem;color:#333">Auto-refreshes every 60s</div>
+      </div>
+
+      <div class="card">
+        <h2>Invite Code</h2>
+        ${generatedCode ? `
+        <div class="code-box"><span>${generatedCode}</span></div>
+        <p class="code-note">Single-use. Share this with your streamer.</p>
+        ` : ''}
+        <form method="POST" action="/admin/${adminPath}/invite">
+          <button class="btn" type="submit">${generatedCode ? 'Generate Another →' : 'Generate Invite Code →'}</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card full">
+      <h2>Connected Channels</h2>
+      ${channels.length === 0
+        ? '<p class="empty">No channels connected yet. Generate an invite code and share it with a streamer.</p>'
+        : `<table>
+            <thead><tr><th>Channel</th><th>Connected since</th><th>In queue</th><th>Queue</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>`}
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
-// Stricter rate limiter for the admin endpoint — 3 attempts per 15 minutes.
-const adminAttempts = new Map();
-function adminRateLimit(req, res, next) {
-  const ip = req.ip;
-  const now = Date.now();
-  const window = 15 * 60 * 1000;
-  const entry = adminAttempts.get(ip);
-  if (entry && now < entry.resetAt) {
-    if (entry.count >= 3) {
-      return res.status(429).send(renderError('Too many attempts. Please wait 15 minutes.'));
-    }
-    entry.count += 1;
-  } else {
-    adminAttempts.set(ip, { count: 1, resetAt: now + window });
-  }
-  next();
-}
+// ---------------------------------------------------------------------------
+// Main server factory
+// ---------------------------------------------------------------------------
 
-function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = () => true, domain = '') {
+function createWebServer(
+  joinChannel,
+  botName,
+  prefix = '!dbd ',
+  isConnected = () => true,
+  domain = '',
+  getChannelStats = () => []
+) {
   const baseUrl = domain ? `https://${domain}` : '';
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminPath = process.env.ADMIN_PATH || 'admin';
+
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.urlencoded({ extended: false }));
+
+  // ── Public routes ──────────────────────────────────────────────────────────
 
   app.get('/og-image.svg', (_req, res) => {
     res.set('Content-Type', 'image/svg+xml');
@@ -228,22 +410,19 @@ function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = (
     res.send(renderLanding(botName, null, prefix, baseUrl));
   });
 
-  app.post('/onboard', rateLimit, (req, res) => {
+  app.post('/onboard', onboardRateLimit, (req, res) => {
     const rawCode = (req.body.invite_code || '').trim();
     const rawChannel = (req.body.channel_name || '').trim().toLowerCase().replace(/^#/, '');
 
     if (!rawCode || !rawChannel) {
       return res.status(400).send(renderLanding(botName, 'Both fields are required.', prefix, baseUrl));
     }
-
     if (!/^[a-zA-Z0-9_]{3,25}$/.test(rawChannel)) {
       return res.status(400).send(renderLanding(botName, 'Invalid channel name. Use only letters, numbers, and underscores (3–25 characters).', prefix, baseUrl));
     }
-
     if (db.channelExists(rawChannel)) {
       return res.status(400).send(renderLanding(botName, 'This channel is already connected.', prefix, baseUrl));
     }
-
     const valid = db.validateAndUseCode(rawCode, rawChannel);
     if (!valid) {
       return res.status(400).send(renderLanding(botName, 'Invalid or already-used invite code.', prefix, baseUrl));
@@ -253,26 +432,7 @@ function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = (
     joinChannel(rawChannel).catch(err => {
       console.error(`[web] Failed to join #${rawChannel}:`, err.message);
     });
-
     return res.send(renderSuccess(botName, rawChannel, prefix));
-  });
-
-  const adminPassword = process.env.ADMIN_PASSWORD;
-
-  app.get('/admin', (_req, res) => {
-    if (!adminPassword) return res.status(404).send(renderError('Not found.'));
-    res.send(renderAdmin());
-  });
-
-  app.post('/admin/invite', adminRateLimit, (req, res) => {
-    if (!adminPassword) return res.status(404).send(renderError('Not found.'));
-    if (req.body.password !== adminPassword) {
-      return res.status(401).send(renderAdmin('Incorrect password.'));
-    }
-    const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
-    const code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
-    db.createInviteCode(code);
-    return res.send(renderAdminSuccess(code));
   });
 
   app.get('/health', (_req, res) => {
@@ -282,11 +442,74 @@ function createWebServer(joinChannel, botName, prefix = '!dbd ', isConnected = (
       .json({ status: connected ? 'ok' : 'disconnected', uptimeMs: Date.now() - START_TIME });
   });
 
+  // ── Admin routes ───────────────────────────────────────────────────────────
+  // 404 everything if admin is not configured.
+
+  if (!adminPassword) {
+    app.all(`/admin/*path`, (_req, res) => res.status(404).send(renderError('Not found.')));
+  } else {
+    function buildDashboard(req, res, generatedCode = null) {
+      const statsMap = new Map(getChannelStats().map(s => [s.channel, s]));
+      return res.send(renderDashboard({
+        adminPath,
+        botName,
+        prefix,
+        connected: isConnected(),
+        uptimeMs: Date.now() - START_TIME,
+        channels: db.getChannelList(),
+        channelStatsMap: statsMap,
+        pendingCodes: db.getPendingCodeCount(),
+        generatedCode,
+      }));
+    }
+
+    function requireAuth(req, res, next) {
+      if (isValidSession(getSessionToken(req))) return next();
+      res.redirect(302, `/admin/${adminPath}`);
+    }
+
+    app.get(`/admin/${adminPath}`, (req, res) => {
+      if (isValidSession(getSessionToken(req))) return buildDashboard(req, res);
+      res.send(renderLoginPage(adminPath));
+    });
+
+    app.post(`/admin/${adminPath}/login`, adminRateLimit, (req, res) => {
+      if (req.body.password !== adminPassword) {
+        return res.status(401).send(renderLoginPage(adminPath, 'Incorrect password.'));
+      }
+      const token = createSession();
+      res.set('Set-Cookie', `admin_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+      res.redirect(302, `/admin/${adminPath}`);
+    });
+
+    app.post(`/admin/${adminPath}/invite`, requireAuth, (req, res) => {
+      const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const code = `${raw.slice(0, 4)}-${raw.slice(4)}`;
+      db.createInviteCode(code);
+      buildDashboard(req, res, code);
+    });
+
+    app.get(`/admin/${adminPath}/logout`, (req, res) => {
+      const token = getSessionToken(req);
+      if (token) sessions.delete(token);
+      res.set('Set-Cookie', 'admin_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+      res.redirect(302, `/admin/${adminPath}`);
+    });
+
+    // Block requests to /admin/*path that don't match the secret path
+    app.all('/admin/*path', (_req, res) => res.status(404).send(renderError('Not found.')));
+  }
+
   return app;
 }
 
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
 function _resetRateLimiterForTesting() {
-  attempts.clear();
+  onboardRateLimit._map.clear();
+  adminRateLimit._map.clear();
 }
 
 module.exports = { createWebServer, _resetRateLimiterForTesting };

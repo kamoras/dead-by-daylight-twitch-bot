@@ -77,7 +77,15 @@ function createBot(config, initialChannels = []) {
     }
   }
 
-  return { client, joinChannel, isConnected };
+  function getChannelStats() {
+    return Array.from(queues.entries()).map(([channel, queue]) => ({
+      channel,
+      size: queue.size,
+      isOpen: queue.isOpen,
+    }));
+  }
+
+  return { client, joinChannel, isConnected, getChannelStats };
 }
 
 module.exports = { createBot };
