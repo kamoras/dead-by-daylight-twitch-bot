@@ -1,0 +1,63 @@
+'use strict';
+
+const path = require('path');
+const Database = require('better-sqlite3');
+
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bot.db');
+
+const db = new Database(DB_PATH);
+
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS channels (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_name TEXT    UNIQUE NOT NULL,
+    added_by     TEXT,
+    active       INTEGER NOT NULL DEFAULT 1,
+    added_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS invite_codes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    code       TEXT    UNIQUE NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    used       INTEGER NOT NULL DEFAULT 0,
+    used_by    TEXT,
+    used_at    TEXT
+  );
+`);
+
+module.exports = {
+  getActiveChannels() {
+    return db.prepare('SELECT channel_name FROM channels WHERE active = 1').all();
+  },
+
+  channelExists(channelName) {
+    return !!db.prepare('SELECT 1 FROM channels WHERE channel_name = ?').get(channelName.toLowerCase());
+  },
+
+  addChannel(channelName, addedBy) {
+    db.prepare('INSERT INTO channels (channel_name, added_by) VALUES (?, ?)').run(
+      channelName.toLowerCase(),
+      addedBy || null
+    );
+  },
+
+  validateAndUseCode(code, usedBy) {
+    const row = db.prepare('SELECT id FROM invite_codes WHERE code = ? AND used = 0').get(code.toUpperCase());
+    if (!row) return false;
+    db.prepare(
+      `UPDATE invite_codes SET used = 1, used_by = ?, used_at = datetime('now') WHERE id = ?`
+    ).run(usedBy, row.id);
+    return true;
+  },
+
+  createInviteCode(code) {
+    db.prepare('INSERT INTO invite_codes (code) VALUES (?)').run(code.toUpperCase());
+  },
+
+  close() {
+    db.close();
+  },
+};

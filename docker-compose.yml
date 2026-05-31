@@ -1,0 +1,12 @@
+services:
+  bot:
+    # Replace kamoras with your GitHub username.
+    # This image is built and pushed by GitHub Actions on every merge to main.
+    image: ghcr.io/kamoras/dead-by-daylight-twitch-bot:latest
+    container_name: dbd-bot
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
