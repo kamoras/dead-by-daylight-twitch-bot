@@ -151,7 +151,7 @@ function renderPage({ title, heading, headingColor = '#cc2222', body, botName, b
   <link rel="apple-touch-icon" href="${FAVICON_URI}">${metaTags(baseUrl)}
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#080810;color:#c8c8d8;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background-image:radial-gradient(ellipse at top,#1a0a1a 0%,#080810 70%)}
+    body{background:#080810;color:#c8c8d8;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background-image:radial-gradient(ellipse at top,#1a0a1a 0%,#080810 70%)}
     .card{background:rgba(20,10,25,.95);border:1px solid rgba(180,0,0,.3);border-radius:8px;padding:2.5rem;width:100%;max-width:440px;box-shadow:0 0 60px rgba(120,0,0,.2)}
     h1{font-size:1.6rem;color:${headingColor};margin-bottom:.4rem;letter-spacing:.05em}
     .sub{font-size:.9rem;color:#888;margin-bottom:2rem}
