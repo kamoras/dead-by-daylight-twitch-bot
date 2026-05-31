@@ -74,13 +74,13 @@ jobs:
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script: mkdir -p /opt/dbd-bot/data
 
-      - name: Copy docker-compose.yml to server
+      - name: Copy config files to server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          source: docker-compose.yml
+          source: docker-compose.yml,Caddyfile
           target: /opt/dbd-bot/
 
       - name: Write .env and deploy
@@ -97,6 +97,7 @@ jobs:
             QUEUE_MAX_SIZE=${{ secrets.QUEUE_MAX_SIZE || '20' }}
             BOT_PREFIX=${{ secrets.BOT_PREFIX || '!' }}
             PORT=8080
+            DOMAIN=${{ secrets.DOMAIN }}
             ENVEOF
             cd /opt/dbd-bot
             docker compose pull
