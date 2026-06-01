@@ -69,6 +69,10 @@ module.exports = {
     ).all();
   },
 
+  removeChannel(channelName) {
+    db.prepare('DELETE FROM channels WHERE channel_name = ?').run(channelName.toLowerCase());
+  },
+
   deleteInviteCode(id) {
     db.prepare('DELETE FROM invite_codes WHERE id = ? AND used = 0').run(id);
   },

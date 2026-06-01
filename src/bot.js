@@ -51,6 +51,21 @@ function createBot(config, initialChannels = []) {
     }
   });
 
+  // Themed announcement when the bot enters a channel's chat, so the streamer
+  // can see it's present. Fires for the bot's own join on every path (startup,
+  // reconcile, webhook, manual). A live channel stays joined, so this does not
+  // repeat mid-stream — only on an actual transition into chat.
+  const help = config.prefix.trimEnd().length > 1
+    ? `${config.prefix.trimEnd()} help`
+    : `${config.prefix.trimEnd()}help`;
+  const joinMessage = config.joinMessage
+    || `The fog rolls in — the queue bot has entered the trial. Type ${help} for commands.`;
+
+  client.on('join', (channel, _username, self) => {
+    if (!self) return;
+    client.say(channel, joinMessage).catch(() => {});
+  });
+
   client.on('connected', (addr, port) => {
     console.log(`[tmi] Connected to ${addr}:${port}`);
   });
@@ -69,6 +84,13 @@ function createBot(config, initialChannels = []) {
     return client.join(normalized);
   }
 
+  function leaveChannel(channelName) {
+    const normalized = channelName.replace(/^#/, '').toLowerCase();
+    console.log(`[bot] Leaving #${normalized}`);
+    queues.delete(normalized);
+    return client.part(normalized);
+  }
+
   function isConnected() {
     try {
       return client.readyState() === 'OPEN';
@@ -85,16 +107,30 @@ function createBot(config, initialChannels = []) {
     }));
   }
 
+  // Channels the bot is currently joined to (normalised, no leading #).
+  function getJoinedChannels() {
+    return client.getChannels().map(c => c.replace(/^#/, '').toLowerCase());
+  }
+
+  function onStreamOnline(channelName) {
+    const key = channelName.replace(/^#/, '').toLowerCase();
+    console.log(`[bot] Stream online for #${key} — joining channel`);
+    client.join(key).catch(err => console.error(`[bot] Failed to join #${key}:`, err.message));
+  }
+
   function onStreamOffline(channelName) {
     const key = channelName.replace(/^#/, '').toLowerCase();
     const queue = queues.get(key);
-    if (!queue || !queue.isOpen) return;
-    queue.close();
-    console.log(`[bot] Stream offline for #${key} — queue closed and cleared`);
-    client.say(`#${key}`, 'Stream is offline — queue has been closed and cleared.').catch(() => {});
+    if (queue?.isOpen) {
+      queue.close();
+      client.say(`#${key}`, 'Stream is offline — queue has been closed and cleared.').catch(() => {});
+    }
+    queues.delete(key);
+    client.part(key).catch(err => console.error(`[bot] Failed to leave #${key}:`, err.message));
+    console.log(`[bot] Stream offline for #${key} — leaving channel`);
   }
 
-  return { client, joinChannel, isConnected, getChannelStats, onStreamOffline };
+  return { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, onStreamOffline };
 }
 
 module.exports = { createBot };

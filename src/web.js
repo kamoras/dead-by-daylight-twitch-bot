@@ -14,19 +14,29 @@ const webhookStats = {
   received: 0,
   verified: 0,
   rejected: 0,
-  notifications: 0,
+  online: 0,
+  offline: 0,
+  revoked: 0,
   lastReceivedAt: null,
-  recentEvents: [], // [{channel, time}], capped at 20
+  recentEvents: [], // [{channel, type, time}], capped at 20
 };
 
 function recordWebhookReceived() { webhookStats.received += 1; webhookStats.lastReceivedAt = Date.now(); }
 function recordWebhookVerified() { webhookStats.verified += 1; }
 function recordWebhookRejected() { webhookStats.rejected += 1; }
-function recordStreamOffline(channel) {
-  webhookStats.notifications += 1;
-  webhookStats.recentEvents.unshift({ channel, time: Date.now() });
+function recordWebhookEvent(channel, type) {
+  if (type === 'online') webhookStats.online += 1;
+  else if (type === 'offline') webhookStats.offline += 1;
+  else if (type === 'revoked') webhookStats.revoked += 1;
+  webhookStats.recentEvents.unshift({ channel, type, time: Date.now() });
   if (webhookStats.recentEvents.length > 20) webhookStats.recentEvents.pop();
 }
+
+const EVENT_LABELS = {
+  online: 'Stream started',
+  offline: 'Stream ended',
+  revoked: 'Subscription revoked',
+};
 
 // ---------------------------------------------------------------------------
 // SVG assets
@@ -312,9 +322,15 @@ const ADMIN_CSS = `
   .badge{display:inline-block;padding:.15rem .45rem;border-radius:3px;font-size:.72rem;letter-spacing:.04em}
   .badge.open{background:rgba(51,204,102,.12);color:#33cc66}
   .badge.closed{background:rgba(200,50,50,.12);color:#cc5555}
+  .badge.live{background:rgba(51,204,102,.12);color:#33cc66}
+  .badge.absent{background:rgba(120,120,140,.1);color:#777}
   .empty{color:#444;font-size:.85rem;padding:.5rem 0}
   .btn-revoke{background:transparent;border:1px solid rgba(180,0,0,.25);color:#994444;padding:.2rem .55rem;border-radius:3px;cursor:pointer;font-size:.72rem;transition:all .15s}
   .btn-revoke:hover{background:rgba(180,0,0,.1);border-color:#cc3333;color:#cc5555}
+  .btn-act{background:transparent;border:1px solid rgba(255,255,255,.12);color:#888;padding:.2rem .55rem;border-radius:3px;cursor:pointer;font-size:.72rem;transition:all .15s;margin-right:.3rem}
+  .btn-act:hover{border-color:rgba(255,255,255,.3);color:#ccc}
+  .btn-act.join{border-color:rgba(51,204,102,.3);color:#4a9a6a}
+  .btn-act.join:hover{background:rgba(51,204,102,.08);color:#33cc66}
   .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
   .login-card{background:rgba(20,10,25,.95);border:1px solid rgba(180,0,0,.3);border-radius:8px;padding:2.5rem;width:100%;max-width:380px}
   .login-card h1{font-size:1.4rem;color:#888;margin-bottom:.4rem;letter-spacing:.05em}
@@ -352,7 +368,8 @@ function renderLoginPage(adminPath, errorMsg) {
 </html>`;
 }
 
-function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, pendingCodes, generatedCode, prefix, webhook }) {
+function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, joinedChannels, pendingCodes, generatedCode, prefix, webhook }) {
+  const joinedSet = new Set(joinedChannels);
   const pendingRows = pendingCodes.map(c => `<tr>
     <td style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
     <td>${formatDate(c.created_at)}</td>
@@ -368,11 +385,33 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
     const badge = stats.isOpen
       ? '<span class="badge open">Open</span>'
       : '<span class="badge closed">Closed</span>';
+    const present = joinedSet.has(ch.channel_name);
+    const presenceBadge = present
+      ? '<span class="badge live">In chat</span>'
+      : '<span class="badge absent">Not in chat</span>';
+    // Manual override: Join when absent, Leave when present, plus permanent Disconnect.
+    const presenceBtn = present
+      ? `<form method="POST" action="/admin/${adminPath}/leave" style="display:inline;margin:0">
+          <input type="hidden" name="channel" value="${ch.channel_name}">
+          <button class="btn-act" type="submit">Leave</button>
+        </form>`
+      : `<form method="POST" action="/admin/${adminPath}/join" style="display:inline;margin:0">
+          <input type="hidden" name="channel" value="${ch.channel_name}">
+          <button class="btn-act join" type="submit">Join</button>
+        </form>`;
     return `<tr>
       <td>#${ch.channel_name}</td>
       <td>${formatDate(ch.added_at)}</td>
       <td>${stats.size}</td>
       <td>${badge}</td>
+      <td>${presenceBadge}</td>
+      <td style="white-space:nowrap">
+        ${presenceBtn}
+        <form method="POST" action="/admin/${adminPath}/disconnect" style="display:inline;margin:0">
+          <input type="hidden" name="channel" value="${ch.channel_name}">
+          <button class="btn-revoke" type="submit">Disconnect</button>
+        </form>
+      </td>
     </tr>`;
   }).join('');
 
@@ -429,7 +468,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
       ${channels.length === 0
         ? '<p class="empty">No channels connected yet. Generate an invite code and share it with a streamer.</p>'
         : `<table>
-            <thead><tr><th>Channel</th><th>Connected since</th><th>In queue</th><th>Queue</th></tr></thead>
+            <thead><tr><th>Channel</th><th>Connected since</th><th>In queue</th><th>Queue</th><th>Bot</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>`}
     </div>
@@ -447,32 +486,36 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
     <div class="card full">
       <h2>Webhook Activity</h2>
       ${!webhook.enabled
-        ? `<p class="empty">EventSub not configured — set <code style="font-size:.8rem">TWITCH_CLIENT_ID</code>, <code style="font-size:.8rem">TWITCH_CLIENT_SECRET</code> and <code style="font-size:.8rem">TWITCH_WEBHOOK_SECRET</code> to enable stream-end auto-detection.</p>`
-        : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.25rem">
+        ? `<p class="empty">Webhooks not configured — set <code style="font-size:.8rem">TWITCH_CLIENT_ID</code>, <code style="font-size:.8rem">TWITCH_CLIENT_SECRET</code>, <code style="font-size:.8rem">TWITCH_WEBHOOK_SECRET</code> and <code style="font-size:.8rem">DOMAIN</code> for instant join/leave. Live-only presence still works via polling with just the client credentials.</p>`
+        : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.75rem;margin-bottom:1.25rem">
             <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:.9rem;text-align:center">
               <div style="font-size:1.6rem;font-weight:700;color:#fff">${webhook.received}</div>
               <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Received</div>
-            </div>
-            <div style="background:rgba(51,204,102,.06);border-radius:6px;padding:.9rem;text-align:center">
-              <div style="font-size:1.6rem;font-weight:700;color:#33cc66">${webhook.verified}</div>
-              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Verified</div>
             </div>
             <div style="background:rgba(200,50,50,.06);border-radius:6px;padding:.9rem;text-align:center">
               <div style="font-size:1.6rem;font-weight:700;color:#cc3333">${webhook.rejected}</div>
               <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Rejected</div>
             </div>
+            <div style="background:rgba(51,204,102,.06);border-radius:6px;padding:.9rem;text-align:center">
+              <div style="font-size:1.6rem;font-weight:700;color:#33cc66">${webhook.online}</div>
+              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Stream Starts</div>
+            </div>
             <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:.9rem;text-align:center">
-              <div style="font-size:1.6rem;font-weight:700;color:#fff">${webhook.notifications}</div>
+              <div style="font-size:1.6rem;font-weight:700;color:#fff">${webhook.offline}</div>
               <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Stream Ends</div>
+            </div>
+            <div style="background:rgba(220,140,40,.06);border-radius:6px;padding:.9rem;text-align:center">
+              <div style="font-size:1.6rem;font-weight:700;color:${webhook.revoked ? '#e0902a' : '#fff'}">${webhook.revoked}</div>
+              <div style="font-size:.72rem;color:#555;margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em">Revoked</div>
             </div>
           </div>
           <div class="stat" style="margin-bottom:1rem">Last received: <strong>${formatTimeAgo(webhook.lastReceivedAt)}</strong></div>
           ${webhook.recentEvents.length === 0
-            ? '<p class="empty">No stream.offline events received yet.</p>'
+            ? '<p class="empty">No events received yet.</p>'
             : `<table>
-                <thead><tr><th>Channel</th><th>Stream ended</th></tr></thead>
+                <thead><tr><th>Channel</th><th>Event</th><th>When</th></tr></thead>
                 <tbody>
-                  ${webhook.recentEvents.map(e => `<tr><td>#${e.channel}</td><td>${formatTimeAgo(e.time)}</td></tr>`).join('')}
+                  ${webhook.recentEvents.map(e => `<tr><td>#${e.channel}</td><td>${EVENT_LABELS[e.type] || e.type}</td><td>${formatTimeAgo(e.time)}</td></tr>`).join('')}
                 </tbody>
               </table>`}
         `}
@@ -486,16 +529,21 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
 // Main server factory
 // ---------------------------------------------------------------------------
 
-function createWebServer(
-  joinChannel,
+function createWebServer({
   botName,
   prefix = '!dbd ',
-  isConnected = () => true,
   domain = '',
-  getChannelStats = () => [],
   webhookSecret = '',
-  onStreamOffline = () => {}
-) {
+  onChannelAdded = async () => {},      // onboarding: join chat + subscribe to EventSub
+  onChannelRemoved = async () => {},    // disconnect: leave chat + remove EventSub subs
+  joinChannel = async () => {},         // raw manual join (no DB / subscription change)
+  leaveChannel = async () => {},        // raw manual leave (no DB / subscription change)
+  isConnected = () => true,
+  getChannelStats = () => [],
+  getJoinedChannels = () => [],
+  onStreamOnline = () => {},
+  onStreamOffline = () => {},
+} = {}) {
   const baseUrl = domain ? `https://${domain}` : '';
   const adminPassword = process.env.ADMIN_PASSWORD;
   const adminPath = process.env.ADMIN_PATH || 'admin';
@@ -512,6 +560,27 @@ function createWebServer(
   if (webhookSecret) {
     const { verifySignature } = require('./eventsub');
 
+    // Replay protection: reject messages older than the tolerance and ignore
+    // message IDs we've already processed (Twitch retries on non-2xx).
+    const REPLAY_TOLERANCE_MS = 10 * 60 * 1000;
+    const seenMessageIds = new Map(); // messageId -> expiresAt
+
+    function isReplayedId(messageId) {
+      const now = Date.now();
+      if (seenMessageIds.size > 1000) {
+        for (const [id, exp] of seenMessageIds) if (exp <= now) seenMessageIds.delete(id);
+      }
+      if ((seenMessageIds.get(messageId) ?? 0) > now) return true;
+      seenMessageIds.set(messageId, now + REPLAY_TOLERANCE_MS);
+      return false;
+    }
+
+    function isStaleTimestamp(timestamp) {
+      const t = Date.parse(timestamp);
+      if (Number.isNaN(t)) return false; // unparseable — let it through rather than drop a real event
+      return Date.now() - t > REPLAY_TOLERANCE_MS;
+    }
+
     app.post('/webhook/twitch', express.raw({ type: 'application/json' }), (req, res) => {
       const messageId = req.headers['twitch-eventsub-message-id'] ?? '';
       const timestamp = req.headers['twitch-eventsub-message-timestamp'] ?? '';
@@ -526,17 +595,42 @@ function createWebServer(
       }
 
       recordWebhookVerified();
-      const body = JSON.parse(req.body.toString());
+
+      // Signature is valid, but acknowledge (don't act on) stale or duplicate
+      // deliveries so replays can't re-trigger joins/leaves.
+      if (isStaleTimestamp(timestamp) || isReplayedId(messageId)) {
+        return res.status(204).end();
+      }
+
+      let body;
+      try {
+        body = JSON.parse(req.body.toString());
+      } catch {
+        return res.status(400).end();
+      }
 
       if (messageType === 'webhook_callback_verification') {
         return res.status(200).send(body.challenge);
       }
 
-      if (messageType === 'notification' && body.subscription?.type === 'stream.offline') {
+      if (messageType === 'revocation') {
+        const sub = body.subscription || {};
+        const who = sub.condition?.broadcaster_user_id || 'unknown';
+        console.warn(`[web] EventSub subscription revoked — type=${sub.type} status=${sub.status} broadcaster=${who}`);
+        recordWebhookEvent(who, 'revoked');
+        return res.status(204).end();
+      }
+
+      if (messageType === 'notification') {
         const channel = body.event?.broadcaster_user_login;
         if (channel) {
-          recordStreamOffline(channel);
-          onStreamOffline(channel);
+          if (body.subscription?.type === 'stream.offline') {
+            recordWebhookEvent(channel, 'offline');
+            onStreamOffline(channel);
+          } else if (body.subscription?.type === 'stream.online') {
+            recordWebhookEvent(channel, 'online');
+            onStreamOnline(channel);
+          }
         }
       }
 
@@ -573,8 +667,8 @@ function createWebServer(
     }
 
     db.addChannel(rawChannel, rawChannel);
-    joinChannel(rawChannel).catch(err => {
-      console.error(`[web] Failed to join #${rawChannel}:`, err.message);
+    Promise.resolve(onChannelAdded(rawChannel)).catch(err => {
+      console.error(`[web] Failed to connect #${rawChannel}:`, err.message);
     });
     return res.send(renderSuccess(botName, rawChannel, prefix));
   });
@@ -602,6 +696,7 @@ function createWebServer(
         uptimeMs: Date.now() - START_TIME,
         channels: db.getChannelList(),
         channelStatsMap: statsMap,
+        joinedChannels: getJoinedChannels(),
         pendingCodes: db.getPendingCodes(),
         generatedCode,
         webhook: { enabled: !!webhookSecret, ...webhookStats },
@@ -637,6 +732,45 @@ function createWebServer(
     app.post(`/admin/${adminPath}/revoke`, requireAuth, (req, res) => {
       const id = parseInt(req.body.id, 10);
       if (!isNaN(id)) db.deleteInviteCode(id);
+      res.redirect(302, `/admin/${adminPath}`);
+    });
+
+    // Pulls a normalised, validated channel name from the request, or null.
+    function validChannel(req) {
+      const channel = (req.body.channel || '').trim().toLowerCase().replace(/^#/, '');
+      return /^[a-z0-9_]{3,25}$/.test(channel) ? channel : null;
+    }
+
+    app.post(`/admin/${adminPath}/disconnect`, requireAuth, (req, res) => {
+      const channel = validChannel(req);
+      if (channel) {
+        db.removeChannel(channel);
+        Promise.resolve(onChannelRemoved(channel)).catch(err => {
+          console.error(`[web] Failed to disconnect #${channel}:`, err.message);
+        });
+      }
+      res.redirect(302, `/admin/${adminPath}`);
+    });
+
+    // Manual presence override — join/leave the channel's chat without changing
+    // its connection or EventSub subscriptions. Useful when webhooks lag.
+    app.post(`/admin/${adminPath}/join`, requireAuth, (req, res) => {
+      const channel = validChannel(req);
+      if (channel && db.channelExists(channel)) {
+        Promise.resolve(joinChannel(channel)).catch(err => {
+          console.error(`[web] Manual join failed for #${channel}:`, err.message);
+        });
+      }
+      res.redirect(302, `/admin/${adminPath}`);
+    });
+
+    app.post(`/admin/${adminPath}/leave`, requireAuth, (req, res) => {
+      const channel = validChannel(req);
+      if (channel) {
+        Promise.resolve(leaveChannel(channel)).catch(err => {
+          console.error(`[web] Manual leave failed for #${channel}:`, err.message);
+        });
+      }
       res.redirect(302, `/admin/${adminPath}`);
     });
 

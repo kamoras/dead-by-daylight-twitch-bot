@@ -18,6 +18,10 @@ module.exports = [
         console: 'readonly',
         fetch: 'readonly',
         Buffer: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
     rules: {

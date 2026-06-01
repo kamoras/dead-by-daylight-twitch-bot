@@ -12,10 +12,10 @@ One bot instance serves multiple streamers. Streamers self-onboard through an in
 - **Queue management** — viewers sign up, check their position, and leave at will
 - **Role modes** — survivor is the default role; killer is opt-in (`!dbd join killer`)
 - **Moderator controls** — open/close the queue, pick the next player(s), remove users
-- **Auto stream-end** — queue closes and clears automatically when the stream goes offline (requires Twitch EventSub config)
+- **Live-only presence** — the bot joins a channel when its stream goes live and leaves (closing and clearing the queue) when it ends, via reconciliation polling with optional instant webhooks (requires Twitch app credentials)
 - **Multi-channel** — one bot instance serves multiple streamers
 - **Invite-only onboarding** — streamers self-connect via a landing page using single-use invite codes
-- **Admin dashboard** — generate/revoke invite codes, monitor connected channels, queue state, and webhook activity
+- **Admin dashboard** — generate/revoke invite codes, monitor connected channels and live presence, manually join/leave, and watch webhook activity
 - **DbD extras** — random killer, survivor, perk, map, and Entity messages
 - **Free hosting** — runs on Oracle Cloud Always Free tier (no expiry; credit card required to sign up)
 - **Auto-deploy** — GitHub Actions builds, pushes, and deploys on every merge to `main`
@@ -69,13 +69,15 @@ All configuration is done via environment variables. In production these are set
 | `ADMIN_PASSWORD` | ✅ | — | Password for the admin dashboard |
 | `ADMIN_PATH` | ✅ | — | Secret URL slug — admin lives at `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` |
 | `BOT_PREFIX` | | `!dbd ` | Command prefix (trailing space required for multi-word prefixes) |
+| `BOT_JOIN_MESSAGE` | | themed default | Message the bot posts when it enters a channel's chat |
 | `QUEUE_ROLES_MODE` | | `both` | `off` · `both` · `survivor` · `killer` |
 | `QUEUE_MAX_SIZE` | | `20` | Maximum queue size |
 | `PORT` | | `8080` | Internal port (Caddy proxies to this — do not expose publicly) |
 | `DB_PATH` | | `./data/bot.db` | SQLite path inside the container (maps to `/opt/dbd-bot/data/bot.db` on host) |
-| `TWITCH_CLIENT_ID` | | — | Twitch app Client ID — required for stream-end auto-detection |
-| `TWITCH_CLIENT_SECRET` | | — | Twitch app Client Secret — required for stream-end auto-detection |
-| `TWITCH_WEBHOOK_SECRET` | | — | Random string for EventSub signature verification (`openssl rand -hex 20`) |
+| `TWITCH_CLIENT_ID` | | — | Twitch app Client ID — required for live-only presence |
+| `TWITCH_CLIENT_SECRET` | | — | Twitch app Client Secret — required for live-only presence |
+| `TWITCH_WEBHOOK_SECRET` | | — | Random string for EventSub signature verification (`openssl rand -hex 20`); enables instant webhook join/leave on top of polling |
+| `STREAM_POLL_INTERVAL_MS` | | `90000` | How often to reconcile chat presence with live status (floored at 30000) |
 
 ### Getting a Twitch OAuth token
 
@@ -243,20 +245,25 @@ The admin dashboard at `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` provides:
 
 - **Bot status** — connection state, uptime, active channel count, current prefix
 - **Invite codes** — generate single-use codes; revoke any pending code before it's used
-- **Connected channels** — all onboarded channels with queue size and open/closed state
-- **Webhook activity** — EventSub delivery stats (received, verified, rejected) and a log of recent stream-end events
+- **Connected channels** — all onboarded channels with queue size, open/closed state, and whether the bot is currently in chat; per-channel **Join**/**Leave** (manual presence override) and **Disconnect** buttons
+- **Webhook activity** — EventSub delivery stats (received, rejected) and a log of recent stream-start, stream-end, and subscription-revoked events
 
 Sessions last 8 hours. The admin URL itself is secret — any other `/admin/*` path returns 404.
 
 ---
 
-## Stream-End Auto-Detection
+## Live-Only Presence
 
-When `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_WEBHOOK_SECRET` are all set, the bot subscribes to the Twitch EventSub `stream.offline` event for every connected channel. When a stream ends, the queue is automatically closed and cleared, and the bot posts a message in chat.
+The bot joins a channel's chat only while its stream is live and leaves (closing and clearing the queue) when it ends. This works in two complementary layers:
 
-The webhook endpoint is `https://YOUR_DOMAIN/webhook/twitch`. Twitch verifies ownership of this endpoint during subscription setup, so the HTTPS endpoint provided by Caddy is required.
+- **Reconciliation polling (backbone).** With `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` set, the bot polls Twitch every `STREAM_POLL_INTERVAL_MS` (default 90s) for who's live, then joins live channels it isn't in and leaves connected channels that are no longer live. This is self-healing — it works without a public URL and recovers from any missed event.
+- **Webhooks (instant, optional).** Additionally setting `TWITCH_WEBHOOK_SECRET` and `DOMAIN` lets the bot subscribe to the EventSub `stream.online` / `stream.offline` events for instant join/leave instead of waiting for the next poll. The webhook endpoint is `https://YOUR_DOMAIN/webhook/twitch`; Twitch verifies ownership during subscription setup, so the HTTPS endpoint provided by Caddy is required. Deliveries are signature-verified, and replayed or stale deliveries are ignored.
 
-The bot runs normally without these secrets — stream-end detection is opt-in.
+Correctness never depends on webhook delivery: webhooks only reduce latency, and the poll reconciles state on every cycle, so a missed or undelivered webhook is self-corrected within one interval. The two layers are intentionally redundant.
+
+On `stream.offline` (or when a poll finds a channel no longer live) the queue is closed and cleared and the bot posts a message before leaving. Disconnecting a channel from the admin panel also removes its EventSub subscriptions, and the admin panel has manual **Join**/**Leave** buttons to override presence when needed.
+
+Without any Twitch credentials, the bot can't tell who's live and falls back to permanently sitting in every connected channel.
 
 ---
 
