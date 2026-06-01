@@ -373,6 +373,12 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
       <td>${formatDate(ch.added_at)}</td>
       <td>${stats.size}</td>
       <td>${badge}</td>
+      <td>
+        <form method="POST" action="/admin/${adminPath}/disconnect" style="margin:0">
+          <input type="hidden" name="channel" value="${ch.channel_name}">
+          <button class="btn-revoke" type="submit">Disconnect</button>
+        </form>
+      </td>
     </tr>`;
   }).join('');
 
@@ -429,7 +435,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
       ${channels.length === 0
         ? '<p class="empty">No channels connected yet. Generate an invite code and share it with a streamer.</p>'
         : `<table>
-            <thead><tr><th>Channel</th><th>Connected since</th><th>In queue</th><th>Queue</th></tr></thead>
+            <thead><tr><th>Channel</th><th>Connected since</th><th>In queue</th><th>Queue</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table>`}
     </div>
@@ -447,7 +453,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
     <div class="card full">
       <h2>Webhook Activity</h2>
       ${!webhook.enabled
-        ? `<p class="empty">EventSub not configured — set <code style="font-size:.8rem">TWITCH_CLIENT_ID</code>, <code style="font-size:.8rem">TWITCH_CLIENT_SECRET</code> and <code style="font-size:.8rem">TWITCH_WEBHOOK_SECRET</code> to enable stream-end auto-detection.</p>`
+        ? `<p class="empty">EventSub not configured — set <code style="font-size:.8rem">TWITCH_CLIENT_ID</code>, <code style="font-size:.8rem">TWITCH_CLIENT_SECRET</code> and <code style="font-size:.8rem">TWITCH_WEBHOOK_SECRET</code> to enable live-only presence (auto join/leave on stream start/end).</p>`
         : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1.25rem">
             <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:.9rem;text-align:center">
               <div style="font-size:1.6rem;font-weight:700;color:#fff">${webhook.received}</div>
@@ -488,12 +494,14 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
 
 function createWebServer(
   joinChannel,
+  leaveChannel,
   botName,
   prefix = '!dbd ',
   isConnected = () => true,
   domain = '',
   getChannelStats = () => [],
   webhookSecret = '',
+  onStreamOnline = () => {},
   onStreamOffline = () => {}
 ) {
   const baseUrl = domain ? `https://${domain}` : '';
@@ -532,11 +540,15 @@ function createWebServer(
         return res.status(200).send(body.challenge);
       }
 
-      if (messageType === 'notification' && body.subscription?.type === 'stream.offline') {
+      if (messageType === 'notification') {
         const channel = body.event?.broadcaster_user_login;
         if (channel) {
-          recordStreamOffline(channel);
-          onStreamOffline(channel);
+          if (body.subscription?.type === 'stream.offline') {
+            recordStreamOffline(channel);
+            onStreamOffline(channel);
+          } else if (body.subscription?.type === 'stream.online') {
+            onStreamOnline(channel);
+          }
         }
       }
 
@@ -637,6 +649,17 @@ function createWebServer(
     app.post(`/admin/${adminPath}/revoke`, requireAuth, (req, res) => {
       const id = parseInt(req.body.id, 10);
       if (!isNaN(id)) db.deleteInviteCode(id);
+      res.redirect(302, `/admin/${adminPath}`);
+    });
+
+    app.post(`/admin/${adminPath}/disconnect`, requireAuth, (req, res) => {
+      const channel = (req.body.channel || '').trim().toLowerCase().replace(/^#/, '');
+      if (/^[a-z0-9_]{3,25}$/.test(channel)) {
+        db.removeChannel(channel);
+        leaveChannel(channel).catch(err => {
+          console.error(`[web] Failed to leave #${channel}:`, err.message);
+        });
+      }
       res.redirect(302, `/admin/${adminPath}`);
     });
 

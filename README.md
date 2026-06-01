@@ -12,7 +12,7 @@ One bot instance serves multiple streamers. Streamers self-onboard through an in
 - **Queue management** — viewers sign up, check their position, and leave at will
 - **Role modes** — survivor is the default role; killer is opt-in (`!dbd join killer`)
 - **Moderator controls** — open/close the queue, pick the next player(s), remove users
-- **Auto stream-end** — queue closes and clears automatically when the stream goes offline (requires Twitch EventSub config)
+- **Live-only presence** — the bot joins a channel when its stream goes live and leaves (closing and clearing the queue) when it ends (requires Twitch EventSub config)
 - **Multi-channel** — one bot instance serves multiple streamers
 - **Invite-only onboarding** — streamers self-connect via a landing page using single-use invite codes
 - **Admin dashboard** — generate/revoke invite codes, monitor connected channels, queue state, and webhook activity
@@ -250,13 +250,18 @@ Sessions last 8 hours. The admin URL itself is secret — any other `/admin/*` p
 
 ---
 
-## Stream-End Auto-Detection
+## Live-Only Presence
 
-When `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_WEBHOOK_SECRET` are all set, the bot subscribes to the Twitch EventSub `stream.offline` event for every connected channel. When a stream ends, the queue is automatically closed and cleared, and the bot posts a message in chat.
+When `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_WEBHOOK_SECRET`, and `DOMAIN` are all set, the bot subscribes to the Twitch EventSub `stream.online` and `stream.offline` events for every connected channel:
+
+- **`stream.online`** — the bot joins the channel's chat.
+- **`stream.offline`** — the bot closes and clears the queue, posts a message, and leaves the channel's chat.
+
+On startup the bot joins only the channels that are currently live; the rest are joined automatically when they next go online. Disconnecting a channel from the admin panel also removes its EventSub subscriptions.
 
 The webhook endpoint is `https://YOUR_DOMAIN/webhook/twitch`. Twitch verifies ownership of this endpoint during subscription setup, so the HTTPS endpoint provided by Caddy is required.
 
-The bot runs normally without these secrets — stream-end detection is opt-in.
+Without these secrets (or without `DOMAIN`), the bot can't receive webhooks and instead falls back to permanently sitting in every connected channel.
 
 ---
 

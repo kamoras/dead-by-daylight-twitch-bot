@@ -10,11 +10,27 @@ const db = require('../src/db');
 const { createWebServer, _resetRateLimiterForTesting } = require('../src/web');
 
 const mockJoin = async () => {};
-const app = createWebServer(mockJoin, 'testbot');
+const mockLeave = async () => {};
+const app = createWebServer(mockJoin, mockLeave, 'testbot');
+
+// A second instance with admin enabled, capturing the channels it's asked to leave.
+const leftChannels = [];
+process.env.ADMIN_PASSWORD = 'secret';
+process.env.ADMIN_PATH = 'admin';
+const adminApp = createWebServer(mockJoin, async (ch) => { leftChannels.push(ch); }, 'testbot');
 
 beforeEach(() => {
   _resetRateLimiterForTesting();
+  leftChannels.length = 0;
 });
+
+async function adminLogin() {
+  const res = await request(adminApp)
+    .post('/admin/admin/login')
+    .type('form')
+    .send({ password: 'secret' });
+  return res.headers['set-cookie'];
+}
 
 describe('GET /', () => {
   it('returns 200 with the landing page', async () => {
@@ -118,5 +134,43 @@ describe('POST /onboard', () => {
       .send({ invite_code: 'WEB-0007', channel_name: 'MyCHANNEL' });
     assert.equal(res.status, 200);
     assert.equal(db.channelExists('mychannel'), true);
+  });
+});
+
+describe('POST /admin/:path/disconnect', () => {
+  it('rejects unauthenticated requests', async () => {
+    db.addChannel('victim', 'victim');
+    const res = await request(adminApp)
+      .post('/admin/admin/disconnect')
+      .type('form')
+      .send({ channel: 'victim' });
+    // No session → redirected back to the login page, channel untouched.
+    assert.equal(res.status, 302);
+    assert.equal(db.channelExists('victim'), true);
+    assert.deepEqual(leftChannels, []);
+  });
+
+  it('removes the channel and leaves its chat when authenticated', async () => {
+    db.addChannel('leaver', 'leaver');
+    const cookie = await adminLogin();
+    const res = await request(adminApp)
+      .post('/admin/admin/disconnect')
+      .set('Cookie', cookie)
+      .type('form')
+      .send({ channel: 'leaver' });
+    assert.equal(res.status, 302);
+    assert.equal(db.channelExists('leaver'), false);
+    assert.deepEqual(leftChannels, ['leaver']);
+  });
+
+  it('ignores an invalid channel name without leaving anything', async () => {
+    const cookie = await adminLogin();
+    const res = await request(adminApp)
+      .post('/admin/admin/disconnect')
+      .set('Cookie', cookie)
+      .type('form')
+      .send({ channel: 'bad name!' });
+    assert.equal(res.status, 302);
+    assert.deepEqual(leftChannels, []);
   });
 });

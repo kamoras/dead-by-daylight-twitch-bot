@@ -27,6 +27,10 @@ const eventSubConfig = {
   callbackUrl: process.env.DOMAIN ? `https://${process.env.DOMAIN}/webhook/twitch` : '',
 };
 
+// Webhooks (and therefore stream-based auto-join/leave) only work when the
+// Twitch app credentials AND a public callback URL (DOMAIN) are both present.
+const webhooksActive = eventSubConfig.enabled && !!eventSubConfig.callbackUrl;
+
 const REQUIRED_VARS = {
   botUsername: 'TWITCH_BOT_USERNAME',
   botToken: 'TWITCH_BOT_TOKEN',
@@ -59,12 +63,12 @@ process.on('uncaughtException', err => {
 const storedChannels = db.getActiveChannels().map(r => r.channel_name);
 console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
-const { client, joinChannel, isConnected, getChannelStats, onStreamOffline } = createBot(config, storedChannels);
+const { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, onStreamOffline } = createBot(config, []);
 
 // Combines channel join + EventSub subscription for use by the onboarding flow.
 async function onChannelAdded(channelName) {
   await joinChannel(channelName);
-  if (eventSubConfig.enabled && eventSubConfig.callbackUrl) {
+  if (webhooksActive) {
     await eventsub.subscribeChannel({
       channel: channelName,
       callbackUrl: eventSubConfig.callbackUrl,
@@ -75,14 +79,29 @@ async function onChannelAdded(channelName) {
   }
 }
 
+// Leaves the channel and tears down its EventSub subscriptions so a future
+// stream.online for a disconnected channel can't make the bot rejoin.
+async function onChannelRemoved(channelName) {
+  await leaveChannel(channelName);
+  if (webhooksActive) {
+    await eventsub.unsubscribeChannel({
+      channel: channelName,
+      clientId: eventSubConfig.clientId,
+      clientSecret: eventSubConfig.clientSecret,
+    });
+  }
+}
+
 const app = createWebServer(
   onChannelAdded,
+  onChannelRemoved,
   config.botUsername,
   config.prefix,
   isConnected,
   process.env.DOMAIN || '',
   getChannelStats,
   eventSubConfig.webhookSecret,
+  onStreamOnline,
   onStreamOffline
 );
 
@@ -90,23 +109,50 @@ app.listen(config.port, () => {
   console.log(`[web] Listening on port ${config.port}`);
 });
 
+async function joinAll(channelNames) {
+  for (const ch of channelNames) {
+    await joinChannel(ch).catch(err => console.error(`[bot] Failed to join #${ch}:`, err.message));
+  }
+}
+
 client
   .connect()
   .then(async () => {
     console.log(`[bot] Connected as ${config.botUsername}`);
 
-    if (eventSubConfig.enabled && eventSubConfig.callbackUrl) {
-      console.log('[eventsub] Syncing stream.offline subscriptions...');
-      await eventsub.syncSubscriptions({
-        channels: storedChannels,
-        callbackUrl: eventSubConfig.callbackUrl,
-        webhookSecret: eventSubConfig.webhookSecret,
-        clientId: eventSubConfig.clientId,
-        clientSecret: eventSubConfig.clientSecret,
-      });
-    } else if (!eventSubConfig.enabled) {
-      console.log('[eventsub] Disabled — set TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET and TWITCH_WEBHOOK_SECRET to enable auto stream-end detection');
+    if (!webhooksActive) {
+      // Without working webhooks we can't detect stream start/end, so fall back
+      // to the bot permanently sitting in every connected channel.
+      if (!eventSubConfig.enabled) {
+        console.log('[eventsub] Disabled — set TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET and TWITCH_WEBHOOK_SECRET to enable stream-based auto-join/leave');
+      } else {
+        console.log('[eventsub] DOMAIN not set — cannot receive webhooks; joining all channels permanently');
+      }
+      await joinAll(storedChannels);
+      return;
     }
+
+    console.log('[eventsub] Syncing stream subscriptions...');
+    await eventsub.syncSubscriptions({
+      channels: storedChannels,
+      callbackUrl: eventSubConfig.callbackUrl,
+      webhookSecret: eventSubConfig.webhookSecret,
+      clientId: eventSubConfig.clientId,
+      clientSecret: eventSubConfig.clientSecret,
+    });
+
+    // Join only the channels that are currently live; the rest are joined on
+    // their next stream.online webhook.
+    const liveChannels = await eventsub.getLiveChannels({
+      channels: storedChannels,
+      clientId: eventSubConfig.clientId,
+      clientSecret: eventSubConfig.clientSecret,
+    }).catch(err => {
+      console.error('[bot] Could not check live status on startup — joining all channels as fallback:', err.message);
+      return storedChannels;
+    });
+    await joinAll(liveChannels);
+    console.log(`[bot] ${liveChannels.length} channel(s) live on startup${liveChannels.length ? ': ' + liveChannels.join(', ') : ''}`);
   })
   .catch(err => {
     console.error('[bot] Connection failed:', err.message);
