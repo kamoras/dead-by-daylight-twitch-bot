@@ -16,20 +16,23 @@ const config = {
   rolesMode: process.env.QUEUE_ROLES_MODE || 'off',
   queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '20', 10),
   port: Number(process.env.PORT) || 8080,
+  // Reconciliation poll cadence (floored at 30s to stay well within Twitch rate limits).
+  pollIntervalMs: Math.max(30_000, Number(process.env.STREAM_POLL_INTERVAL_MS) || 90_000),
   debug: process.env.NODE_ENV !== 'production',
 };
 
 const eventSubConfig = {
-  enabled: !!(process.env.TWITCH_CLIENT_ID && process.env.TWITCH_CLIENT_SECRET && process.env.TWITCH_WEBHOOK_SECRET),
   clientId: process.env.TWITCH_CLIENT_ID || '',
   clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
   webhookSecret: process.env.TWITCH_WEBHOOK_SECRET || '',
   callbackUrl: process.env.DOMAIN ? `https://${process.env.DOMAIN}/webhook/twitch` : '',
 };
 
-// Webhooks (and therefore stream-based auto-join/leave) only work when the
-// Twitch app credentials AND a public callback URL (DOMAIN) are both present.
-const webhooksActive = eventSubConfig.enabled && !!eventSubConfig.callbackUrl;
+// Querying who's live (the backbone of live-only presence via polling) needs
+// only the app credentials. Webhooks — which add instant join/leave on top of
+// polling — additionally require a shared secret and a public callback URL.
+const streamApiEnabled = !!(eventSubConfig.clientId && eventSubConfig.clientSecret);
+const webhooksActive = streamApiEnabled && !!eventSubConfig.webhookSecret && !!eventSubConfig.callbackUrl;
 
 const REQUIRED_VARS = {
   botUsername: 'TWITCH_BOT_USERNAME',
@@ -63,7 +66,7 @@ process.on('uncaughtException', err => {
 const storedChannels = db.getActiveChannels().map(r => r.channel_name);
 console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
-const { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, onStreamOffline } = createBot(config, []);
+const { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, onStreamOffline } = createBot(config, []);
 
 // Combines channel join + EventSub subscription for use by the onboarding flow.
 async function onChannelAdded(channelName) {
@@ -92,18 +95,21 @@ async function onChannelRemoved(channelName) {
   }
 }
 
-const app = createWebServer(
+const app = createWebServer({
+  botName: config.botUsername,
+  prefix: config.prefix,
+  domain: process.env.DOMAIN || '',
+  webhookSecret: eventSubConfig.webhookSecret,
   onChannelAdded,
   onChannelRemoved,
-  config.botUsername,
-  config.prefix,
+  joinChannel,
+  leaveChannel,
   isConnected,
-  process.env.DOMAIN || '',
   getChannelStats,
-  eventSubConfig.webhookSecret,
+  getJoinedChannels,
   onStreamOnline,
-  onStreamOffline
-);
+  onStreamOffline,
+});
 
 app.listen(config.port, () => {
   console.log(`[web] Listening on port ${config.port}`);
@@ -115,44 +121,76 @@ async function joinAll(channelNames) {
   }
 }
 
+// Reconcile chat presence with live status: join channels that are live but
+// not joined, and leave managed channels that are joined but no longer live.
+// This is the backbone of live-only presence and self-heals any webhook that
+// was missed or never delivered.
+async function reconcilePresence() {
+  const stored = db.getActiveChannels().map(r => r.channel_name);
+  let live;
+  try {
+    live = await eventsub.getLiveChannels({
+      channels: stored,
+      clientId: eventSubConfig.clientId,
+      clientSecret: eventSubConfig.clientSecret,
+    });
+  } catch (err) {
+    console.error('[reconcile] Live-status check failed, leaving presence unchanged:', err.message);
+    return;
+  }
+
+  const liveSet = new Set(live);
+  const storedSet = new Set(stored);
+  const joined = getJoinedChannels();
+  const joinedSet = new Set(joined);
+
+  for (const ch of live) {
+    if (!joinedSet.has(ch)) {
+      console.log(`[reconcile] #${ch} is live but not joined — joining`);
+      await joinChannel(ch).catch(err => console.error(`[reconcile] Join #${ch} failed:`, err.message));
+    }
+  }
+  for (const ch of joined) {
+    if (storedSet.has(ch) && !liveSet.has(ch)) {
+      console.log(`[reconcile] #${ch} is no longer live but still joined — leaving`);
+      onStreamOffline(ch);
+    }
+  }
+}
+
+let pollTimer = null;
+
 client
   .connect()
   .then(async () => {
     console.log(`[bot] Connected as ${config.botUsername}`);
 
-    if (!webhooksActive) {
-      // Without working webhooks we can't detect stream start/end, so fall back
-      // to the bot permanently sitting in every connected channel.
-      if (!eventSubConfig.enabled) {
-        console.log('[eventsub] Disabled — set TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET and TWITCH_WEBHOOK_SECRET to enable stream-based auto-join/leave');
-      } else {
-        console.log('[eventsub] DOMAIN not set — cannot receive webhooks; joining all channels permanently');
-      }
+    if (!streamApiEnabled) {
+      // No Twitch app credentials — we can't tell who's live, so fall back to
+      // the bot permanently sitting in every connected channel.
+      console.log('[eventsub] No Twitch credentials — set TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET for live-only presence');
       await joinAll(storedChannels);
       return;
     }
 
-    console.log('[eventsub] Syncing stream subscriptions...');
-    await eventsub.syncSubscriptions({
-      channels: storedChannels,
-      callbackUrl: eventSubConfig.callbackUrl,
-      webhookSecret: eventSubConfig.webhookSecret,
-      clientId: eventSubConfig.clientId,
-      clientSecret: eventSubConfig.clientSecret,
-    });
+    // Webhooks give instant join/leave; without them we rely on polling alone.
+    if (webhooksActive) {
+      console.log('[eventsub] Syncing stream subscriptions...');
+      await eventsub.syncSubscriptions({
+        channels: storedChannels,
+        callbackUrl: eventSubConfig.callbackUrl,
+        webhookSecret: eventSubConfig.webhookSecret,
+        clientId: eventSubConfig.clientId,
+        clientSecret: eventSubConfig.clientSecret,
+      });
+    } else {
+      console.log('[eventsub] Webhooks inactive (need TWITCH_WEBHOOK_SECRET + DOMAIN) — relying on reconciliation polling for live-only presence');
+    }
 
-    // Join only the channels that are currently live; the rest are joined on
-    // their next stream.online webhook.
-    const liveChannels = await eventsub.getLiveChannels({
-      channels: storedChannels,
-      clientId: eventSubConfig.clientId,
-      clientSecret: eventSubConfig.clientSecret,
-    }).catch(err => {
-      console.error('[bot] Could not check live status on startup — joining all channels as fallback:', err.message);
-      return storedChannels;
-    });
-    await joinAll(liveChannels);
-    console.log(`[bot] ${liveChannels.length} channel(s) live on startup${liveChannels.length ? ': ' + liveChannels.join(', ') : ''}`);
+    // Initial presence sync, then poll to keep it correct and catch missed webhooks.
+    await reconcilePresence();
+    pollTimer = setInterval(() => { reconcilePresence().catch(() => {}); }, config.pollIntervalMs);
+    console.log(`[bot] Live-only presence active (reconciling every ${Math.round(config.pollIntervalMs / 1000)}s)`);
   })
   .catch(err => {
     console.error('[bot] Connection failed:', err.message);
@@ -161,6 +199,7 @@ client
 
 process.on('SIGTERM', async () => {
   console.log('[bot] SIGTERM received, shutting down...');
+  if (pollTimer) clearInterval(pollTimer);
   try {
     await client.disconnect();
   } catch {

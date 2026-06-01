@@ -92,6 +92,11 @@ function createBot(config, initialChannels = []) {
     }));
   }
 
+  // Channels the bot is currently joined to (normalised, no leading #).
+  function getJoinedChannels() {
+    return client.getChannels().map(c => c.replace(/^#/, '').toLowerCase());
+  }
+
   function onStreamOnline(channelName) {
     const key = channelName.replace(/^#/, '').toLowerCase();
     console.log(`[bot] Stream online for #${key} — joining channel`);
@@ -110,7 +115,7 @@ function createBot(config, initialChannels = []) {
     console.log(`[bot] Stream offline for #${key} — leaving channel`);
   }
 
-  return { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, onStreamOffline };
+  return { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, onStreamOffline };
 }
 
 module.exports = { createBot };
