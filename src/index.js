@@ -15,6 +15,7 @@ const config = {
   })(),
   rolesMode: process.env.QUEUE_ROLES_MODE || 'off',
   queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '20', 10),
+  joinMessage: process.env.BOT_JOIN_MESSAGE || '',
   port: Number(process.env.PORT) || 8080,
   // Reconciliation poll cadence (floored at 30s to stay well within Twitch rate limits).
   pollIntervalMs: Math.max(30_000, Number(process.env.STREAM_POLL_INTERVAL_MS) || 90_000),

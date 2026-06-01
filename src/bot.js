@@ -51,6 +51,21 @@ function createBot(config, initialChannels = []) {
     }
   });
 
+  // Themed announcement when the bot enters a channel's chat, so the streamer
+  // can see it's present. Fires for the bot's own join on every path (startup,
+  // reconcile, webhook, manual). A live channel stays joined, so this does not
+  // repeat mid-stream — only on an actual transition into chat.
+  const help = config.prefix.trimEnd().length > 1
+    ? `${config.prefix.trimEnd()} help`
+    : `${config.prefix.trimEnd()}help`;
+  const joinMessage = config.joinMessage
+    || `The fog rolls in — the queue bot has entered the trial. Type ${help} for commands.`;
+
+  client.on('join', (channel, _username, self) => {
+    if (!self) return;
+    client.say(channel, joinMessage).catch(() => {});
+  });
+
   client.on('connected', (addr, port) => {
     console.log(`[tmi] Connected to ${addr}:${port}`);
   });

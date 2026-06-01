@@ -69,6 +69,7 @@ All configuration is done via environment variables. In production these are set
 | `ADMIN_PASSWORD` | ✅ | — | Password for the admin dashboard |
 | `ADMIN_PATH` | ✅ | — | Secret URL slug — admin lives at `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` |
 | `BOT_PREFIX` | | `!dbd ` | Command prefix (trailing space required for multi-word prefixes) |
+| `BOT_JOIN_MESSAGE` | | themed default | Message the bot posts when it enters a channel's chat |
 | `QUEUE_ROLES_MODE` | | `both` | `off` · `both` · `survivor` · `killer` |
 | `QUEUE_MAX_SIZE` | | `20` | Maximum queue size |
 | `PORT` | | `8080` | Internal port (Caddy proxies to this — do not expose publicly) |
