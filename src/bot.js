@@ -51,20 +51,24 @@ function createBot(config, initialChannels = []) {
     }
   });
 
-  // Themed announcement when the bot enters a channel's chat, so the streamer
-  // can see it's present. Fires for the bot's own join on every path (startup,
-  // reconcile, webhook, manual). A live channel stays joined, so this does not
-  // repeat mid-stream — only on an actual transition into chat.
+  // Themed announcement posted when the bot enters a channel for a stream
+  // session. Tracked per channel so it fires once on an intentional join (via
+  // joinChannel) and NOT again when tmi.js silently rejoins on a reconnect —
+  // Twitch sends periodic RECONNECTs, and binding to the raw 'join' event
+  // re-announced the message minutes into a stream. The flag is cleared on
+  // leave so the next genuine stream announces again.
   const help = config.prefix.trimEnd().length > 1
     ? `${config.prefix.trimEnd()} help`
     : `${config.prefix.trimEnd()}help`;
   const joinMessage = config.joinMessage
     || `The fog rolls in — the queue bot has entered the trial. Type ${help} for commands.`;
+  const announced = new Set();
 
-  client.on('join', (channel, _username, self) => {
-    if (!self) return;
-    client.say(channel, joinMessage).catch(() => {});
-  });
+  function announceEntrance(key) {
+    if (announced.has(key)) return;
+    announced.add(key);
+    client.say(key, joinMessage).catch(() => {});
+  }
 
   client.on('connected', (addr, port) => {
     console.log(`[tmi] Connected to ${addr}:${port}`);
@@ -81,13 +85,17 @@ function createBot(config, initialChannels = []) {
   function joinChannel(channelName) {
     const normalized = channelName.replace(/^#/, '').toLowerCase();
     console.log(`[bot] Joining #${normalized}`);
-    return client.join(normalized);
+    return client.join(normalized).then(result => {
+      announceEntrance(normalized);
+      return result;
+    });
   }
 
   function leaveChannel(channelName) {
     const normalized = channelName.replace(/^#/, '').toLowerCase();
     console.log(`[bot] Leaving #${normalized}`);
     queues.delete(normalized);
+    announced.delete(normalized);
     return client.part(normalized);
   }
 
@@ -115,7 +123,9 @@ function createBot(config, initialChannels = []) {
   function onStreamOnline(channelName) {
     const key = channelName.replace(/^#/, '').toLowerCase();
     console.log(`[bot] Stream online for #${key} — joining channel`);
-    client.join(key).catch(err => console.error(`[bot] Failed to join #${key}:`, err.message));
+    // Route through joinChannel so the entrance announcement + dedup apply
+    // (a duplicate stream.online won't produce a second message).
+    return joinChannel(key).catch(err => console.error(`[bot] Failed to join #${key}:`, err.message));
   }
 
   function onStreamOffline(channelName) {
@@ -126,6 +136,7 @@ function createBot(config, initialChannels = []) {
       client.say(`#${key}`, 'Stream is offline — queue has been closed and cleared.').catch(() => {});
     }
     queues.delete(key);
+    announced.delete(key);
     client.part(key).catch(err => console.error(`[bot] Failed to leave #${key}:`, err.message));
     console.log(`[bot] Stream offline for #${key} — leaving channel`);
   }
