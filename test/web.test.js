@@ -217,6 +217,16 @@ describe('GET /admin/:path (dashboard)', () => {
     assert.match(res.text, /\/admin\/admin\/join/);       // manual join control
   });
 
+  it('includes responsive table markup for mobile (data labels + stacked-card CSS)', async () => {
+    db.addChannel('mobilechan', 'mobilechan');
+    const cookie = await adminLogin();
+    const res = await request(adminApp).get('/admin/admin').set('Cookie', cookie);
+    assert.match(res.text, /data-label="Channel"/);     // per-cell labels for stacked view
+    assert.match(res.text, /<td class="actions"/);       // action cell hook
+    assert.match(res.text, /@media\(max-width:580px\)/); // mobile breakpoint present
+    assert.match(res.text, /thead\{display:none\}/);     // tables collapse to cards
+  });
+
   it('shows the login page without a session', async () => {
     const res = await request(adminApp).get('/admin/admin');
     assert.equal(res.status, 200);

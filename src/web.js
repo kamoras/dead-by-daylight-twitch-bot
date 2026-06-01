@@ -339,7 +339,25 @@ const ADMIN_CSS = `
   input[type=password]{width:100%;padding:.6rem .85rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:#e8e8e8;font-size:.9rem;margin-bottom:1.1rem;outline:none;transition:border-color .2s}
   input[type=password]:focus{border-color:rgba(180,0,0,.6)}
   .error-msg{background:rgba(180,0,0,.12);border:1px solid rgba(180,0,0,.3);border-radius:4px;padding:.65rem .9rem;margin-bottom:1rem;color:#ff6666;font-size:.85rem}
-  @media(max-width:580px){.grid{grid-template-columns:1fr}}`;
+  @media(max-width:580px){
+    .wrap{padding:1rem}
+    .grid{grid-template-columns:1fr}
+    .card{padding:1.1rem}
+    .header{margin-bottom:1.25rem}
+    .header h1{font-size:.8rem;line-height:1.3}
+    /* Stacked-card tables: each row becomes a labelled card instead of overflowing. */
+    table,tbody,tr,td{display:block;width:100%}
+    thead{display:none}
+    tbody tr{border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:.35rem .85rem;margin-bottom:.7rem}
+    tbody tr:last-child{margin-bottom:0}
+    tbody td{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.45rem 0;border-bottom:1px solid rgba(255,255,255,.05);color:#aaa}
+    tbody tr td:last-child{border-bottom:none}
+    tbody td:first-child{color:#fff;font-weight:600}
+    tbody td::before{content:attr(data-label);color:#555;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;flex-shrink:0}
+    tbody td.actions{justify-content:flex-end;flex-wrap:wrap;gap:.5rem;padding-top:.65rem}
+    tbody td.actions::before{display:none}
+    .btn-act,.btn-revoke{margin:0;padding:.45rem .85rem;font-size:.8rem}
+  }`;
 
 function renderLoginPage(adminPath, errorMsg) {
   return `<!DOCTYPE html>
@@ -371,9 +389,9 @@ function renderLoginPage(adminPath, errorMsg) {
 function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, joinedChannels, pendingCodes, generatedCode, prefix, webhook }) {
   const joinedSet = new Set(joinedChannels);
   const pendingRows = pendingCodes.map(c => `<tr>
-    <td style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
-    <td>${formatDate(c.created_at)}</td>
-    <td>
+    <td data-label="Code" style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
+    <td data-label="Created">${formatDate(c.created_at)}</td>
+    <td class="actions">
       <form method="POST" action="/admin/${adminPath}/revoke" style="margin:0">
         <input type="hidden" name="id" value="${c.id}">
         <button class="btn-revoke" type="submit">Revoke</button>
@@ -400,12 +418,12 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
           <button class="btn-act join" type="submit">Join</button>
         </form>`;
     return `<tr>
-      <td>#${ch.channel_name}</td>
-      <td>${formatDate(ch.added_at)}</td>
-      <td>${stats.size}</td>
-      <td>${badge}</td>
-      <td>${presenceBadge}</td>
-      <td style="white-space:nowrap">
+      <td data-label="Channel">#${ch.channel_name}</td>
+      <td data-label="Connected since">${formatDate(ch.added_at)}</td>
+      <td data-label="In queue">${stats.size}</td>
+      <td data-label="Queue">${badge}</td>
+      <td data-label="Bot">${presenceBadge}</td>
+      <td class="actions">
         ${presenceBtn}
         <form method="POST" action="/admin/${adminPath}/disconnect" style="display:inline;margin:0">
           <input type="hidden" name="channel" value="${ch.channel_name}">
@@ -515,7 +533,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
             : `<table>
                 <thead><tr><th>Channel</th><th>Event</th><th>When</th></tr></thead>
                 <tbody>
-                  ${webhook.recentEvents.map(e => `<tr><td>#${e.channel}</td><td>${EVENT_LABELS[e.type] || e.type}</td><td>${formatTimeAgo(e.time)}</td></tr>`).join('')}
+                  ${webhook.recentEvents.map(e => `<tr><td data-label="Channel">#${e.channel}</td><td data-label="Event">${EVENT_LABELS[e.type] || e.type}</td><td data-label="When">${formatTimeAgo(e.time)}</td></tr>`).join('')}
                 </tbody>
               </table>`}
         `}
