@@ -112,6 +112,47 @@ function createBot(config, initialChannels = []) {
     return client.getChannels().map(c => c.replace(/^#/, '').toLowerCase());
   }
 
+  // Current Twitch category per channel (lowercased login -> game name), kept
+  // fresh by the reconciliation poll. Used to hide the overlay when a streamer
+  // is playing something other than the target game.
+  const categories = new Map();
+  const targetGame = (config.targetGame || 'Dead by Daylight').toLowerCase();
+
+  function setLiveCategories(liveList) {
+    categories.clear();
+    for (const s of liveList) {
+      categories.set(s.login.replace(/^#/, '').toLowerCase(), s.gameName || '');
+    }
+  }
+
+  // Live snapshot of a channel's queue for the OBS overlay. `present` reflects
+  // whether the bot is currently in the channel's chat, which disambiguates an
+  // as-yet-uncreated queue (open & empty) from an offline channel. `onTargetGame`
+  // is false only when we positively know the channel is playing another game.
+  function getQueueSnapshot(channelName, limit = 5) {
+    const key = channelName.replace(/^#/, '').toLowerCase();
+    const present = getJoinedChannels().includes(key);
+    const game = categories.get(key) || null;
+    const onTargetGame = game == null ? true : game.toLowerCase() === targetGame;
+    const queue = queues.get(key);
+    if (!queue) {
+      return { present, isOpen: present, size: 0, maxSize: config.queueMaxSize, entries: [], game, onTargetGame };
+    }
+    return {
+      present,
+      isOpen: queue.isOpen,
+      size: queue.size,
+      maxSize: queue.maxSize,
+      game,
+      onTargetGame,
+      entries: queue.list(limit).map((e, i) => ({
+        username: e.username,
+        role: e.role,
+        position: i + 1,
+      })),
+    };
+  }
+
   function onStreamOnline(channelName) {
     const key = channelName.replace(/^#/, '').toLowerCase();
     console.log(`[bot] Stream online for #${key} — joining channel`);
@@ -130,7 +171,7 @@ function createBot(config, initialChannels = []) {
     console.log(`[bot] Stream offline for #${key} — leaving channel`);
   }
 
-  return { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, onStreamOffline };
+  return { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, getQueueSnapshot, setLiveCategories, onStreamOffline };
 }
 
 module.exports = { createBot };

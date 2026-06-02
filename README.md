@@ -78,6 +78,8 @@ All configuration is done via environment variables. In production these are set
 | `TWITCH_CLIENT_SECRET` | | — | Twitch app Client Secret — required for live-only presence |
 | `TWITCH_WEBHOOK_SECRET` | | — | Random string for EventSub signature verification (`openssl rand -hex 20`); enables instant webhook join/leave on top of polling |
 | `STREAM_POLL_INTERVAL_MS` | | `90000` | How often to reconcile chat presence with live status (floored at 30000) |
+| `OVERLAY_SECRET` | | `ADMIN_PASSWORD` | Secret used to derive overlay URL tokens (falls back to `ADMIN_PASSWORD`) |
+| `OVERLAY_GAME_NAME` | | `Dead by Daylight` | Twitch category the overlay shows for; it hides for any other category |
 
 ### Getting a Twitch OAuth token
 
@@ -264,6 +266,18 @@ Correctness never depends on webhook delivery: webhooks only reduce latency, and
 On `stream.offline` (or when a poll finds a channel no longer live) the queue is closed and cleared and the bot posts a message before leaving. Disconnecting a channel from the admin panel also removes its EventSub subscriptions, and the admin panel has manual **Join**/**Leave** buttons to override presence when needed.
 
 Without any Twitch credentials, the bot can't tell who's live and falls back to permanently sitting in every connected channel.
+
+---
+
+## OBS Queue Overlay
+
+Each connected channel gets a transparent browser-source URL that shows a live, auto-updating "Up Next" queue panel on stream.
+
+- **Get the URL:** in the admin dashboard, each channel row has a **Overlay URL** button that copies its link. The URL carries an unguessable token derived from the channel name plus `OVERLAY_SECRET` (so no database changes are needed; rotating the secret invalidates all overlay URLs).
+- **Add it in OBS:** create a Browser Source, paste the URL, and size it around 340×420. The background is transparent.
+- **Live updates:** the overlay polls every ~2 seconds — no setup required.
+- **Auto-hide by category:** the overlay only shows while the channel's Twitch category is the target game (default **Dead by Daylight**, configurable via `OVERLAY_GAME_NAME`). If the streamer switches to another category, the overlay hides itself until they return. Category is read from the same live-status poll, so it updates within one `STREAM_POLL_INTERVAL_MS` cycle.
+- **Customize:** append query params — `?rows=8` (entries shown, 1–20), `?title=Trial%20Queue`, `?accent=%2300cc88`.
 
 ---
 

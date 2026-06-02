@@ -122,6 +122,7 @@ async function subscribeChannel({ channel, callbackUrl, webhookSecret, clientId,
 // ---------------------------------------------------------------------------
 // Check which channels from a list are currently live
 // ---------------------------------------------------------------------------
+// Returns one entry per live channel: { login, gameId, gameName }.
 
 async function getLiveChannels({ channels, clientId, clientSecret }) {
   if (!channels.length) return [];
@@ -136,7 +137,9 @@ async function getLiveChannels({ channels, clientId, clientSecret }) {
     });
     if (!res.ok) throw new Error(`Helix streams request failed: ${res.status}`);
     const data = await res.json();
-    for (const s of data.data ?? []) live.push(s.user_login.toLowerCase());
+    for (const s of data.data ?? []) {
+      live.push({ login: s.user_login.toLowerCase(), gameId: s.game_id || '', gameName: s.game_name || '' });
+    }
   }
   return live;
 }

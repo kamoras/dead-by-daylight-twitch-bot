@@ -16,6 +16,8 @@ const config = {
   rolesMode: process.env.QUEUE_ROLES_MODE || 'off',
   queueMaxSize: parseInt(process.env.QUEUE_MAX_SIZE || '20', 10),
   joinMessage: process.env.BOT_JOIN_MESSAGE || '',
+  // Twitch category the overlay is shown for; hidden when the streamer is on another game.
+  targetGame: process.env.OVERLAY_GAME_NAME || 'Dead by Daylight',
   port: Number(process.env.PORT) || 8080,
   // Reconciliation poll cadence (floored at 30s to stay well within Twitch rate limits).
   pollIntervalMs: Math.max(30_000, Number(process.env.STREAM_POLL_INTERVAL_MS) || 90_000),
@@ -67,7 +69,7 @@ process.on('uncaughtException', err => {
 const storedChannels = db.getActiveChannels().map(r => r.channel_name);
 console.log(`[db] Loaded ${storedChannels.length} channel(s) from database`);
 
-const { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, onStreamOffline } = createBot(config, []);
+const { client, joinChannel, leaveChannel, onStreamOnline, isConnected, getChannelStats, getJoinedChannels, getQueueSnapshot, setLiveCategories, onStreamOffline } = createBot(config, []);
 
 // Combines channel join + EventSub subscription for use by the onboarding flow.
 async function onChannelAdded(channelName) {
@@ -108,6 +110,7 @@ const app = createWebServer({
   isConnected,
   getChannelStats,
   getJoinedChannels,
+  getQueueSnapshot,
   onStreamOnline,
   onStreamOffline,
 });
@@ -140,12 +143,17 @@ async function reconcilePresence() {
     return;
   }
 
-  const liveSet = new Set(live);
+  // Record each live channel's current category so the overlay can hide itself
+  // when the streamer isn't playing the target game.
+  setLiveCategories(live);
+
+  const liveLogins = live.map(s => s.login);
+  const liveSet = new Set(liveLogins);
   const storedSet = new Set(stored);
   const joined = getJoinedChannels();
   const joinedSet = new Set(joined);
 
-  for (const ch of live) {
+  for (const ch of liveLogins) {
     if (!joinedSet.has(ch)) {
       console.log(`[reconcile] #${ch} is live but not joined — joining`);
       await joinChannel(ch).catch(err => console.error(`[reconcile] Join #${ch} failed:`, err.message));

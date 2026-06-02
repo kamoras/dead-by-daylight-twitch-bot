@@ -386,7 +386,7 @@ function renderLoginPage(adminPath, errorMsg) {
 </html>`;
 }
 
-function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, joinedChannels, pendingCodes, generatedCode, prefix, webhook }) {
+function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, joinedChannels, overlayUrls = new Map(), pendingCodes, generatedCode, prefix, webhook }) {
   const joinedSet = new Set(joinedChannels);
   const pendingRows = pendingCodes.map(c => `<tr>
     <td data-label="Code" style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
@@ -417,6 +417,10 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
           <input type="hidden" name="channel" value="${ch.channel_name}">
           <button class="btn-act join" type="submit">Join</button>
         </form>`;
+    const overlayUrl = overlayUrls.get(ch.channel_name) || '';
+    const overlayBtn = overlayUrl
+      ? `<button class="btn-act" type="button" onclick="copyOv(this,'${overlayUrl}')">Overlay URL</button>`
+      : '';
     return `<tr>
       <td data-label="Channel">#${ch.channel_name}</td>
       <td data-label="Connected since">${formatDate(ch.added_at)}</td>
@@ -424,6 +428,7 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
       <td data-label="Queue">${badge}</td>
       <td data-label="Bot">${presenceBadge}</td>
       <td class="actions">
+        ${overlayBtn}
         ${presenceBtn}
         <form method="POST" action="/admin/${adminPath}/disconnect" style="display:inline;margin:0">
           <input type="hidden" name="channel" value="${ch.channel_name}">
@@ -539,6 +544,113 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
         `}
     </div>
   </div>
+  <script>
+    function copyOv(btn, url){
+      navigator.clipboard.writeText(url).then(function(){
+        var prev = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function(){ btn.textContent = prev; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// OBS overlay rendering
+// ---------------------------------------------------------------------------
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Transparent, self-refreshing queue panel for use as an OBS browser source.
+// Queue entries are rendered client-side via textContent (no markup injection);
+// the streamer-supplied title/accent are escaped/validated here.
+function renderOverlay(channel, dataUrl, query = {}) {
+  const accent = /^#[0-9a-fA-F]{3,8}$/.test(query.accent || '') ? query.accent : '#cc2222';
+  const title = esc((query.title || 'Queue').slice(0, 40));
+  const rows = Math.min(Math.max(1, parseInt(query.rows, 10) || 5), 20);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Queue Overlay — #${channel}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:transparent}
+  body{font-family:'Segoe UI',system-ui,sans-serif;color:#e8e8ee;-webkit-font-smoothing:antialiased;padding:8px}
+  .ov{max-width:340px;background:rgba(12,8,16,.82);border:1px solid ${accent}59;border-radius:10px;overflow:hidden;box-shadow:0 6px 30px rgba(0,0,0,.45)}
+  .ov-h{display:flex;align-items:center;justify-content:space-between;padding:.6rem .85rem;border-bottom:1px solid rgba(255,255,255,.08)}
+  .ov-title{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:#fff}
+  .ov-status{display:flex;align-items:center;gap:.4rem;font-size:.64rem;text-transform:uppercase;letter-spacing:.1em;color:#9a9aa8}
+  .ov-dot{width:8px;height:8px;border-radius:50%;background:#555}
+  .ov-dot.open{background:#33cc66}
+  .ov-dot.closed{background:#cc3333}
+  .ov-list{list-style:none}
+  .ov-row{display:flex;align-items:center;gap:.6rem;padding:.45rem .85rem;border-bottom:1px solid rgba(255,255,255,.04);font-size:.86rem}
+  .ov-row:last-child{border-bottom:none}
+  .ov-row.up{background:${accent}24}
+  .ov-pos{min-width:1.4em;text-align:center;font-variant-numeric:tabular-nums;color:#888;font-size:.78rem}
+  .ov-row.up .ov-pos{color:${accent};font-weight:700}
+  .ov-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#eaeaf0}
+  .ov-role{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;padding:.1rem .4rem;border-radius:3px;color:#aaa;background:rgba(255,255,255,.07)}
+  .ov-role.killer{color:#e0902a;background:rgba(220,140,40,.13)}
+  .ov-role.survivor{color:#4aa3e0;background:rgba(74,163,224,.13)}
+  .ov-empty{padding:.85rem;font-size:.8rem;color:#8a8a98}
+  .ov-foot{padding:.45rem .85rem;border-top:1px solid rgba(255,255,255,.08);font-size:.7rem;color:#9a9aa8;letter-spacing:.04em}
+</style>
+</head>
+<body>
+  <div class="ov" id="ov" hidden>
+    <div class="ov-h"><span class="ov-title">${title}</span><span class="ov-status"><span class="ov-dot" id="dot"></span><span id="state">—</span></span></div>
+    <ul class="ov-list" id="list"></ul>
+    <div class="ov-foot" id="foot"></div>
+  </div>
+<script>
+  var DATA_URL = ${JSON.stringify(dataUrl)} + '?rows=' + ${rows};
+  var ROOT = document.getElementById('ov');
+  var LIST = document.getElementById('list');
+  function roleTag(role){
+    var s = document.createElement('span');
+    s.className = 'ov-role' + (role ? ' ' + role : '');
+    s.textContent = role ? (role === 'killer' ? 'Killer' : 'Survivor') : '';
+    return s;
+  }
+  function render(d){
+    // Hide entirely when the streamer is playing a different game.
+    if(d.onTargetGame === false){ ROOT.hidden = true; return; }
+    ROOT.hidden = false;
+    document.getElementById('dot').className = 'ov-dot ' + (d.present && d.isOpen ? 'open' : 'closed');
+    document.getElementById('state').textContent = !d.present ? 'Offline' : (d.isOpen ? 'Open' : 'Closed');
+    LIST.textContent = '';
+    var entries = d.entries || [];
+    if(entries.length === 0){
+      var li = document.createElement('li');
+      li.className = 'ov-empty';
+      li.textContent = !d.present ? 'Stream offline' : (d.isOpen ? 'Queue is empty' : 'Queue is closed');
+      LIST.appendChild(li);
+    } else {
+      entries.forEach(function(e, i){
+        var row = document.createElement('li');
+        row.className = 'ov-row' + (i === 0 ? ' up' : '');
+        var pos = document.createElement('span'); pos.className = 'ov-pos'; pos.textContent = e.position;
+        var name = document.createElement('span'); name.className = 'ov-name'; name.textContent = e.username;
+        row.appendChild(pos); row.appendChild(name);
+        if(e.role) row.appendChild(roleTag(e.role));
+        LIST.appendChild(row);
+      });
+    }
+    var more = d.size > entries.length ? ' · +' + (d.size - entries.length) + ' more' : '';
+    document.getElementById('foot').textContent = d.size + ' in the fog' + more;
+  }
+  function tick(){
+    fetch(DATA_URL, {cache:'no-store'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){ if(d) render(d); }).catch(function(){});
+  }
+  tick();
+  setInterval(tick, 2000);
+</script>
 </body>
 </html>`;
 }
@@ -559,12 +671,23 @@ function createWebServer({
   isConnected = () => true,
   getChannelStats = () => [],
   getJoinedChannels = () => [],
+  getQueueSnapshot = () => ({ present: false, isOpen: false, size: 0, maxSize: 0, entries: [] }),
   onStreamOnline = () => {},
   onStreamOffline = () => {},
 } = {}) {
   const baseUrl = domain ? `https://${domain}` : '';
   const adminPassword = process.env.ADMIN_PASSWORD;
   const adminPath = process.env.ADMIN_PATH || 'admin';
+
+  // Overlay URLs carry an unguessable token derived from the channel + a stable
+  // secret, so the browser-source URL is hard to scrape but needs no DB column.
+  const overlaySecret = process.env.OVERLAY_SECRET || adminPassword || webhookSecret || 'dbd-overlay';
+  function overlayToken(channel) {
+    return crypto.createHmac('sha256', overlaySecret).update(`overlay:${channel.toLowerCase()}`).digest('hex').slice(0, 16);
+  }
+  function overlayUrlFor(channel) {
+    return `${baseUrl}/overlay/${channel}/${overlayToken(channel)}`;
+  }
 
   const app = express();
   app.set('trust proxy', 1);
@@ -698,6 +821,39 @@ function createWebServer({
       .json({ status: connected ? 'ok' : 'disconnected', uptimeMs: Date.now() - START_TIME });
   });
 
+  // ── OBS queue overlay ──────────────────────────────────────────────────────
+  // Public but token-gated. /overlay/:channel/:token renders a transparent
+  // browser-source page that polls /overlay/:channel/:token/data for the queue.
+
+  function resolveOverlay(req) {
+    const channel = (req.params.channel || '').toLowerCase().replace(/^#/, '');
+    if (!/^[a-z0-9_]{3,25}$/.test(channel)) return null;
+    if (!db.channelExists(channel)) return null;
+    const expected = overlayToken(channel);
+    const given = req.params.token || '';
+    if (given.length !== expected.length) return null;
+    try {
+      if (!crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return null;
+    } catch {
+      return null;
+    }
+    return channel;
+  }
+
+  app.get('/overlay/:channel/:token', (req, res) => {
+    const channel = resolveOverlay(req);
+    if (!channel) return res.status(404).send(renderError('Not found.'));
+    res.send(renderOverlay(channel, `/overlay/${channel}/${req.params.token}/data`, req.query));
+  });
+
+  app.get('/overlay/:channel/:token/data', (req, res) => {
+    const channel = resolveOverlay(req);
+    if (!channel) return res.status(404).json({ error: 'not found' });
+    const rows = Math.min(Math.max(1, parseInt(req.query.rows, 10) || 5), 20);
+    res.set('Cache-Control', 'no-store');
+    res.json(getQueueSnapshot(channel, rows));
+  });
+
   // ── Admin routes ───────────────────────────────────────────────────────────
   // 404 everything if admin is not configured.
 
@@ -706,15 +862,18 @@ function createWebServer({
   } else {
     function buildDashboard(req, res, generatedCode = null) {
       const statsMap = new Map(getChannelStats().map(s => [s.channel, s]));
+      const channels = db.getChannelList();
+      const overlayUrls = new Map(channels.map(c => [c.channel_name, overlayUrlFor(c.channel_name)]));
       return res.send(renderDashboard({
         adminPath,
         botName,
         prefix,
         connected: isConnected(),
         uptimeMs: Date.now() - START_TIME,
-        channels: db.getChannelList(),
+        channels,
         channelStatsMap: statsMap,
         joinedChannels: getJoinedChannels(),
+        overlayUrls,
         pendingCodes: db.getPendingCodes(),
         generatedCode,
         webhook: { enabled: !!webhookSecret, ...webhookStats },

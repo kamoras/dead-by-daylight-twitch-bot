@@ -15,8 +15,10 @@ const app = createWebServer({ botName: 'testbot' });
 // A second instance with admin enabled, capturing the calls it makes to the bot.
 const calls = { added: [], removed: [], joined: [], left: [], online: [], offline: [] };
 const WEBHOOK_SECRET = 'test-webhook-secret';
+const OVERLAY_SECRET = 'test-overlay-secret';
 process.env.ADMIN_PASSWORD = 'secret';
 process.env.ADMIN_PATH = 'admin';
+process.env.OVERLAY_SECRET = OVERLAY_SECRET;
 const adminApp = createWebServer({
   botName: 'testbot',
   webhookSecret: WEBHOOK_SECRET,
@@ -27,7 +29,24 @@ const adminApp = createWebServer({
   onStreamOnline: (ch) => { calls.online.push(ch); },
   onStreamOffline: (ch) => { calls.offline.push(ch); },
   getJoinedChannels: () => [...calls.joined],
+  getQueueSnapshot: (channel, rows) => ({
+    present: true,
+    isOpen: true,
+    size: 3,
+    maxSize: 20,
+    game: 'Dead by Daylight',
+    onTargetGame: true,
+    entries: [
+      { username: 'alpha', role: 'survivor', position: 1 },
+      { username: 'bravo', role: 'killer', position: 2 },
+      { username: 'charlie', role: 'survivor', position: 3 },
+    ].slice(0, rows),
+  }),
 });
+
+function overlayToken(channel) {
+  return crypto.createHmac('sha256', OVERLAY_SECRET).update(`overlay:${channel}`).digest('hex').slice(0, 16);
+}
 
 beforeEach(() => {
   _resetRateLimiterForTesting();
@@ -336,5 +355,43 @@ describe('POST /webhook/twitch', () => {
       .set('Content-Type', 'application/json')
       .send(raw);
     assert.equal(res.status, 400);
+  });
+});
+
+describe('GET /overlay/:channel/:token', () => {
+  it('serves the overlay page for a valid token', async () => {
+    db.addChannel('ovpage', 'ovpage');
+    const res = await request(adminApp).get(`/overlay/ovpage/${overlayToken('ovpage')}`);
+    assert.equal(res.status, 200);
+    assert.match(res.text, /Queue Overlay/);
+    assert.match(res.text, /setInterval/); // client poll wired up
+  });
+
+  it('returns the queue snapshot as JSON', async () => {
+    db.addChannel('ovjson', 'ovjson');
+    const res = await request(adminApp).get(`/overlay/ovjson/${overlayToken('ovjson')}/data`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.size, 3);
+    assert.ok(Array.isArray(res.body.entries));
+    assert.equal(res.body.entries[0].username, 'alpha');
+    assert.equal(res.body.onTargetGame, true); // category gate flag passed through
+  });
+
+  it('respects the rows limit', async () => {
+    db.addChannel('ovrows', 'ovrows');
+    const res = await request(adminApp).get(`/overlay/ovrows/${overlayToken('ovrows')}/data?rows=2`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.entries.length, 2);
+  });
+
+  it('404s on a bad token (and does not leak the snapshot)', async () => {
+    db.addChannel('ovbad', 'ovbad');
+    const res = await request(adminApp).get('/overlay/ovbad/0000000000000000/data');
+    assert.equal(res.status, 404);
+  });
+
+  it('404s for an unknown channel even with a correctly-derived token', async () => {
+    const res = await request(adminApp).get(`/overlay/ghostchan/${overlayToken('ghostchan')}/data`);
+    assert.equal(res.status, 404);
   });
 });
