@@ -386,7 +386,7 @@ function renderLoginPage(adminPath, errorMsg) {
 </html>`;
 }
 
-function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, joinedChannels, overlayUrls = new Map(), pendingCodes, generatedCode, prefix, webhook }) {
+function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, channelStatsMap, joinedChannels, overlayUrls = new Map(), pendingCodes, generatedCode, prefix, webhook, chatSelfRefreshing, twitchConfigured }) {
   const joinedSet = new Set(joinedChannels);
   const pendingRows = pendingCodes.map(c => `<tr>
     <td data-label="Code" style="font-family:monospace;letter-spacing:.08em">${c.code}</td>
@@ -484,6 +484,16 @@ function renderDashboard({ adminPath, botName, connected, uptimeMs, channels, ch
           <button class="btn" type="submit">${generatedCode ? 'Generate Another →' : 'Generate Invite Code →'}</button>
         </form>
       </div>
+    </div>
+
+    <div class="card full">
+      <h2>Chat Login</h2>
+      ${chatSelfRefreshing
+        ? `<div class="stat"><span class="dot ok"></span><span>Self-refreshing — the bot renews its own Twitch chat login automatically, no manual token needed.</span></div>`
+        : twitchConfigured
+          ? `<p class="code-note" style="text-align:left;margin:0 0 .9rem">The bot's chat login (<code style="font-size:.8rem">TWITCH_BOT_TOKEN</code>) can expire and needs manual replacement when it does. Connect once via Twitch to make it self-refreshing instead.</p>
+             <a class="btn" style="display:inline-block;text-decoration:none;width:auto;padding:.6rem 1.2rem" href="/admin/${adminPath}/twitch-connect">Connect via Twitch →</a>`
+          : `<p class="empty">Set <code style="font-size:.8rem">TWITCH_CLIENT_ID</code> and <code style="font-size:.8rem">TWITCH_CLIENT_SECRET</code> to enable a self-refreshing chat login.</p>`}
     </div>
 
     <div class="card full">
@@ -674,6 +684,10 @@ function createWebServer({
   getQueueSnapshot = () => ({ present: false, isOpen: false, size: 0, maxSize: 0, entries: [] }),
   onStreamOnline = () => {},
   onStreamOffline = () => {},
+  twitchClientId = '',
+  twitchClientSecret = '',
+  chatSelfRefreshing = false,
+  restartToApplyAuth = () => {},
 } = {}) {
   const baseUrl = domain ? `https://${domain}` : '';
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -877,6 +891,8 @@ function createWebServer({
         pendingCodes: db.getPendingCodes(),
         generatedCode,
         webhook: { enabled: !!webhookSecret, ...webhookStats },
+        chatSelfRefreshing,
+        twitchConfigured: !!(twitchClientId && twitchClientSecret),
       }));
     }
 
@@ -898,6 +914,58 @@ function createWebServer({
       res.set('Set-Cookie', `admin_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
       res.redirect(302, `/admin/${adminPath}`);
     });
+
+    // Lets an admin authorize the bot's Twitch chat login from the browser
+    // instead of manually running curl commands (see README). Only available
+    // once TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET are configured, since the
+    // code exchange needs them.
+    if (twitchClientId && twitchClientSecret) {
+      const { exchangeAuthCode } = require('./eventsub');
+      // CSRF guard for the Twitch redirect — short-lived, single-use.
+      const pendingStates = new Map(); // state -> expiresAt
+      const twitchCallbackUrl = `${baseUrl}/admin/${adminPath}/twitch-callback`;
+
+      app.get(`/admin/${adminPath}/twitch-connect`, requireAuth, (_req, res) => {
+        const state = crypto.randomBytes(16).toString('hex');
+        pendingStates.set(state, Date.now() + 10 * 60 * 1000);
+        const params = new URLSearchParams({
+          client_id: twitchClientId,
+          redirect_uri: twitchCallbackUrl,
+          response_type: 'code',
+          scope: 'chat:read chat:edit',
+          state,
+        });
+        res.redirect(302, `https://id.twitch.tv/oauth2/authorize?${params}`);
+      });
+
+      app.get(`/admin/${adminPath}/twitch-callback`, requireAuth, async (req, res) => {
+        const { code, state, error, error_description: errorDescription } = req.query;
+        const expiresAt = pendingStates.get(state);
+        pendingStates.delete(state);
+
+        if (error) {
+          return res.status(400).send(renderError(`Twitch declined: ${errorDescription || error}`));
+        }
+        if (!state || !expiresAt || Date.now() > expiresAt) {
+          return res.status(400).send(renderError('This authorization link expired or was already used — go back to the admin dashboard and try again.'));
+        }
+        if (!code) {
+          return res.status(400).send(renderError('Missing authorization code.'));
+        }
+
+        try {
+          const data = await exchangeAuthCode({
+            code, clientId: twitchClientId, clientSecret: twitchClientSecret, redirectUri: twitchCallbackUrl,
+          });
+          db.setSetting('twitch_refresh_token', data.refresh_token);
+          res.send(renderError('Connected! The bot is restarting to apply the new chat login — refresh the admin dashboard in a few seconds.'));
+          restartToApplyAuth();
+        } catch (err) {
+          console.error('[web] Twitch code exchange failed:', err.message);
+          res.status(500).send(renderError('Failed to connect — check server logs.'));
+        }
+      });
+    }
 
     app.post(`/admin/${adminPath}/invite`, requireAuth, (req, res) => {
       const raw = crypto.randomBytes(4).toString('hex').toUpperCase();

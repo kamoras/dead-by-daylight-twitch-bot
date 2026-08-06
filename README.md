@@ -64,7 +64,8 @@ All configuration is done via environment variables. In production these are set
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
 | `TWITCH_BOT_USERNAME` | ✅ | — | Twitch username of the bot account |
-| `TWITCH_BOT_TOKEN` | ✅ | — | OAuth token for the bot, prefixed with `oauth:` |
+| `TWITCH_BOT_TOKEN` | ✅* | — | OAuth token for the bot, prefixed with `oauth:`. *Not required if `TWITCH_BOT_REFRESH_TOKEN` is set. |
+| `TWITCH_BOT_REFRESH_TOKEN` | | — | One-time seed token that lets the bot refresh its own chat login forever instead of `TWITCH_BOT_TOKEN` expiring every few weeks. Requires `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET`. See below. |
 | `DOMAIN` | ✅ | — | Your domain — Caddy uses this for TLS and the webhook URL |
 | `ADMIN_PASSWORD` | ✅ | — | Password for the admin dashboard |
 | `ADMIN_PATH` | ✅ | — | Secret URL slug — admin lives at `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH` |
@@ -83,6 +84,10 @@ All configuration is done via environment variables. In production these are set
 
 ### Getting a Twitch OAuth token
 
+There are two ways to authenticate the bot's chat login. The token generated below (implicit grant) has no refresh token, so Twitch eventually expires it (in practice, anywhere from hours to a few weeks) and the bot's chat connection will start failing with `Login authentication failed` until you paste in a new one by hand.
+
+**Quick / manual (`TWITCH_BOT_TOKEN`), expires eventually:**
+
 1. Create a dedicated Twitch account for the bot.
 2. Go to the [Twitch Developer Console](https://dev.twitch.tv/console) and register a new application.
 3. Set the OAuth Redirect URL to `http://localhost`.
@@ -92,6 +97,32 @@ All configuration is done via environment variables. In production these are set
    ```
 5. Authorize the app. The browser redirects to `http://localhost` — copy the `access_token` from the URL bar.
 6. Prefix it with `oauth:` when setting `TWITCH_BOT_TOKEN`.
+
+**Self-refreshing, recommended:**
+
+Once set up, the bot refreshes its own chat login before it expires and persists the rotated refresh token in the database (`data/bot.db`) — no more manual token regeneration.
+
+Requires `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` from a [Twitch Developer Console](https://dev.twitch.tv/console) app. Add both `http://localhost` (for the quick/manual flow above) and `https://YOUR_DOMAIN/admin/YOUR_ADMIN_PATH/twitch-callback` to the app's OAuth Redirect URLs.
+
+*Via the admin dashboard (easiest):* once `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` and `ADMIN_PASSWORD`/`ADMIN_PATH` are set and the bot is deployed, open the admin dashboard, sign in as the bot's Twitch account in the browser, and click **Connect via Twitch** in the "Chat Login" card. The bot exchanges the code, stores the refresh token, and restarts itself to pick it up.
+
+*Manually, if you'd rather not deploy first:*
+
+1. Open this URL in a browser while logged in as the bot account (replacing `YOUR_CLIENT_ID`):
+   ```
+   https://id.twitch.tv/oauth2/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost&response_type=code&scope=chat:read+chat:edit
+   ```
+2. Authorize the app. The browser redirects to `http://localhost?code=...` — copy the `code` value.
+3. Exchange it for a refresh token:
+   ```bash
+   curl -X POST https://id.twitch.tv/oauth2/token \
+     -d client_id=YOUR_CLIENT_ID \
+     -d client_secret=YOUR_CLIENT_SECRET \
+     -d code=PASTE_CODE_HERE \
+     -d grant_type=authorization_code \
+     -d redirect_uri=http://localhost
+   ```
+4. Set `TWITCH_BOT_REFRESH_TOKEN` to the `refresh_token` from the response. `TWITCH_BOT_TOKEN` can be left unset.
 
 ---
 
