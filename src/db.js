@@ -26,6 +26,11 @@ db.exec(`
     used_by    TEXT,
     used_at    TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 module.exports = {
@@ -75,6 +80,16 @@ module.exports = {
 
   deleteInviteCode(id) {
     db.prepare('DELETE FROM invite_codes WHERE id = ? AND used = 0').run(id);
+  },
+
+  getSetting(key) {
+    return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
+  },
+
+  setSetting(key, value) {
+    db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(key, value);
   },
 
   close() {
