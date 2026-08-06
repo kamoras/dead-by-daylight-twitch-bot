@@ -28,6 +28,67 @@ async function getAppToken(clientId, clientSecret) {
 }
 
 // ---------------------------------------------------------------------------
+// User token refresh (bot's chat login — Twitch rotates the refresh token on
+// each use, so callers must persist whatever comes back)
+// ---------------------------------------------------------------------------
+
+// One-time exchange of a browser authorization `code` for the initial
+// access/refresh token pair (authorization_code grant). Used by the admin
+// dashboard's "Connect via Twitch" flow.
+async function exchangeAuthCode({ code, clientId, clientSecret, redirectUri }) {
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!res.ok) throw new Error(`Twitch code exchange failed: ${res.status}`);
+  return res.json(); // { access_token, refresh_token, expires_in, ... }
+}
+
+async function refreshUserToken({ refreshToken, clientId, clientSecret }) {
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+  if (!res.ok) throw new Error(`Twitch token refresh failed: ${res.status}`);
+  return res.json(); // { access_token, refresh_token, expires_in, ... }
+}
+
+// Returns a function suitable for tmi.js's `identity.password` option. tmi.js
+// calls this on every connect and reconnect attempt, so it refreshes lazily
+// (shortly before expiry) and persists the rotated refresh token via
+// `onRotate` so a restart doesn't need a fresh one pasted in.
+function createChatTokenProvider({ refreshToken, clientId, clientSecret, onRotate }) {
+  let token = null;
+  let expiresAt = 0;
+  let current = refreshToken;
+
+  return async function getChatToken() {
+    if (token && Date.now() < expiresAt - 5 * 60_000) return token;
+    const data = await refreshUserToken({ refreshToken: current, clientId, clientSecret });
+    token = data.access_token;
+    expiresAt = Date.now() + data.expires_in * 1000;
+    if (data.refresh_token && data.refresh_token !== current) {
+      current = data.refresh_token;
+      onRotate(current);
+    }
+    return token;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // User ID lookup
 // ---------------------------------------------------------------------------
 
@@ -187,4 +248,4 @@ function verifySignature(secret, messageId, timestamp, rawBody, signature) {
   }
 }
 
-module.exports = { getAppToken, syncSubscriptions, subscribeChannel, unsubscribeChannel, getLiveChannels, verifySignature };
+module.exports = { getAppToken, exchangeAuthCode, refreshUserToken, createChatTokenProvider, syncSubscriptions, subscribeChannel, unsubscribeChannel, getLiveChannels, verifySignature };

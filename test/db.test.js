@@ -56,3 +56,16 @@ describe('db - channels', () => {
     assert.throws(() => db.addChannel('oncechan', 'user'));
   });
 });
+
+describe('db - settings', () => {
+  it('returns null for an unset key', () => {
+    assert.equal(db.getSetting('nope'), null);
+  });
+
+  it('round-trips a value and overwrites it on update', () => {
+    db.setSetting('twitch_refresh_token', 'abc123');
+    assert.equal(db.getSetting('twitch_refresh_token'), 'abc123');
+    db.setSetting('twitch_refresh_token', 'def456');
+    assert.equal(db.getSetting('twitch_refresh_token'), 'def456');
+  });
+});
